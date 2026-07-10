@@ -10,6 +10,15 @@ export interface Settings {
   stars: boolean;
   diskTemp: number;
   steps: number;
+  diskThickness: number;
+  diskDensity: number;
+  bloomIntensity: number;
+  diskSpeed: number;
+  showPhotonSphere: boolean;
+  shiftVisualizer: boolean;
+  splitActive: boolean;
+  splitX: number;
+  spectrumMode: number;
 
   // Camera Settings
   camRadius: number;
@@ -26,12 +35,23 @@ const settings: Settings = {
   stars: true,
   diskTemp: 6500,
   steps: 160,
+  diskThickness: 0.08,
+  diskDensity: 1.80,
+  bloomIntensity: 1.00,
+  diskSpeed: 1.00,
+  showPhotonSphere: false,
+  shiftVisualizer: false,
+  splitActive: false,
+  splitX: 0.5,
+  spectrumMode: 0,
 
   // Camera State
   camRadius: 12.0,
-  camPitch: 0.15, // slightly tilted down
   camYaw: 0.0,
+  camPitch: 0.0,
 };
+
+let currentFlightMode: 'manual' | 'orbit' | 'plunge' | 'flyby' = 'manual';
 
 // UI Elements
 const massInput = document.getElementById('param-mass') as HTMLInputElement;
@@ -42,6 +62,25 @@ const diskTempInput = document.getElementById('param-disk-temp') as HTMLInputEle
 const diskTempBubble = document.getElementById('val-disk-temp') as HTMLSpanElement;
 const stepsInput = document.getElementById('param-steps') as HTMLInputElement;
 const stepsBubble = document.getElementById('val-steps') as HTMLSpanElement;
+
+const diskThicknessInput = document.getElementById('param-disk-thickness') as HTMLInputElement;
+const diskThicknessBubble = document.getElementById('val-disk-thickness') as HTMLSpanElement;
+const diskDensityInput = document.getElementById('param-disk-density') as HTMLInputElement;
+const diskDensityBubble = document.getElementById('val-disk-density') as HTMLSpanElement;
+const bloomIntensityInput = document.getElementById('param-bloom-intensity') as HTMLInputElement;
+const bloomIntensityBubble = document.getElementById('val-bloom-intensity') as HTMLSpanElement;
+
+const diskSpeedInput = document.getElementById('param-disk-speed') as HTMLInputElement;
+const diskSpeedBubble = document.getElementById('val-disk-speed') as HTMLSpanElement;
+const photonSphereToggle = document.getElementById('toggle-photon-sphere') as HTMLInputElement;
+const shiftVisualizerToggle = document.getElementById('toggle-shift-visualizer') as HTMLInputElement;
+const splitScreenToggle = document.getElementById('toggle-split-screen') as HTMLInputElement;
+const spectrumModeSelect = document.getElementById('param-spectrum-mode') as HTMLSelectElement;
+
+const flightManual = document.getElementById('flight-manual') as HTMLButtonElement;
+const flightOrbit = document.getElementById('flight-orbit') as HTMLButtonElement;
+const flightPlunge = document.getElementById('flight-plunge') as HTMLButtonElement;
+const flightFlyby = document.getElementById('flight-flyby') as HTMLButtonElement;
 
 const relativityToggle = document.getElementById('toggle-relativity') as HTMLInputElement;
 const diskToggle = document.getElementById('toggle-disk') as HTMLInputElement;
@@ -66,6 +105,10 @@ const tabContents = document.querySelectorAll('.tab-content');
 function updateBubbles() {
   massBubble.textContent = settings.mass.toFixed(2);
   spinBubble.textContent = settings.spin.toFixed(2);
+  diskThicknessBubble.textContent = settings.diskThickness.toFixed(2);
+  diskDensityBubble.textContent = settings.diskDensity.toFixed(2);
+  bloomIntensityBubble.textContent = settings.bloomIntensity.toFixed(2);
+  diskSpeedBubble.textContent = settings.diskSpeed.toFixed(2);
   diskTempBubble.textContent = `${settings.diskTemp} K`;
   stepsBubble.textContent = settings.steps.toString();
   
@@ -90,6 +133,10 @@ function applyPreset(presetName: string) {
     settings.relativity = true;
     settings.disk = true;
     settings.diskTemp = 6500;
+    settings.diskThickness = 0.08;
+    settings.diskDensity = 1.80;
+    settings.diskSpeed = 1.00;
+    settings.spectrumMode = 0;
   } else if (presetName === 'micro') {
     presetMicro.classList.add('active');
     settings.mass = 3.50;
@@ -97,6 +144,10 @@ function applyPreset(presetName: string) {
     settings.relativity = true;
     settings.disk = true;
     settings.diskTemp = 11000;
+    settings.diskThickness = 0.04;
+    settings.diskDensity = 3.00;
+    settings.diskSpeed = 1.60;
+    settings.spectrumMode = 1;
   } else if (presetName === 'kerr') {
     presetKerr.classList.add('active');
     settings.mass = 1.50;
@@ -104,6 +155,10 @@ function applyPreset(presetName: string) {
     settings.relativity = true;
     settings.disk = true;
     settings.diskTemp = 9500;
+    settings.diskThickness = 0.12;
+    settings.diskDensity = 1.20;
+    settings.diskSpeed = 0.60;
+    settings.spectrumMode = 2;
   } else if (presetName === 'newtonian') {
     presetNewton.classList.add('active');
     settings.mass = 0.0; // effectively zero gravity
@@ -111,15 +166,28 @@ function applyPreset(presetName: string) {
     settings.relativity = false;
     settings.disk = true;
     settings.diskTemp = 6000;
+    settings.diskThickness = 0.08;
+    settings.diskDensity = 1.50;
+    settings.diskSpeed = 1.00;
+    settings.spectrumMode = 0;
   }
 
   // Update inputs to match settings
   massInput.value = settings.mass.toString();
   spinInput.value = settings.spin.toString();
+  diskThicknessInput.value = settings.diskThickness.toString();
+  diskDensityInput.value = settings.diskDensity.toString();
+  bloomIntensityInput.value = settings.bloomIntensity.toString();
+  diskSpeedInput.value = settings.diskSpeed.toString();
   diskTempInput.value = settings.diskTemp.toString();
   relativityToggle.checked = settings.relativity;
   diskToggle.checked = settings.disk;
+  photonSphereToggle.checked = settings.showPhotonSphere;
+  shiftVisualizerToggle.checked = settings.shiftVisualizer;
+  splitScreenToggle.checked = settings.splitActive;
+  spectrumModeSelect.value = settings.spectrumMode.toString();
   
+  applyFlightMode('manual');
   updateBubbles();
 }
 
@@ -148,6 +216,71 @@ stepsInput.addEventListener('input', () => {
   settings.steps = parseInt(stepsInput.value);
   updateBubbles();
 });
+
+diskThicknessInput.addEventListener('input', () => {
+  settings.diskThickness = parseFloat(diskThicknessInput.value);
+  updateBubbles();
+});
+
+diskDensityInput.addEventListener('input', () => {
+  settings.diskDensity = parseFloat(diskDensityInput.value);
+  updateBubbles();
+});
+
+bloomIntensityInput.addEventListener('input', () => {
+  settings.bloomIntensity = parseFloat(bloomIntensityInput.value);
+  updateBubbles();
+});
+
+diskSpeedInput.addEventListener('input', () => {
+  settings.diskSpeed = parseFloat(diskSpeedInput.value);
+  updateBubbles();
+});
+
+photonSphereToggle.addEventListener('change', () => {
+  settings.showPhotonSphere = photonSphereToggle.checked;
+});
+
+shiftVisualizerToggle.addEventListener('change', () => {
+  settings.shiftVisualizer = shiftVisualizerToggle.checked;
+});
+
+splitScreenToggle.addEventListener('change', () => {
+  settings.splitActive = splitScreenToggle.checked;
+});
+
+spectrumModeSelect.addEventListener('change', () => {
+  settings.spectrumMode = parseInt(spectrumModeSelect.value);
+});
+
+const canvasElement = document.getElementById('canvas') as HTMLCanvasElement;
+if (canvasElement) {
+  canvasElement.addEventListener('mousemove', (e) => {
+    if (settings.splitActive) {
+      const rect = canvasElement.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      settings.splitX = Math.max(0.0, Math.min(1.0, x / rect.width));
+    }
+  });
+}
+
+function applyFlightMode(mode: 'manual' | 'orbit' | 'plunge' | 'flyby') {
+  currentFlightMode = mode;
+  flightManual.classList.remove('active');
+  flightOrbit.classList.remove('active');
+  flightPlunge.classList.remove('active');
+  flightFlyby.classList.remove('active');
+  
+  if (mode === 'manual') flightManual.classList.add('active');
+  else if (mode === 'orbit') flightOrbit.classList.add('active');
+  else if (mode === 'plunge') flightPlunge.classList.add('active');
+  else if (mode === 'flyby') flightFlyby.classList.add('active');
+}
+
+flightManual.addEventListener('click', () => applyFlightMode('manual'));
+flightOrbit.addEventListener('click', () => applyFlightMode('orbit'));
+flightPlunge.addEventListener('click', () => applyFlightMode('plunge'));
+flightFlyby.addEventListener('click', () => applyFlightMode('flyby'));
 
 relativityToggle.addEventListener('change', () => {
   settings.relativity = relativityToggle.checked;
@@ -248,9 +381,23 @@ let fpsTimer = 0;
 
 // Main Render Loop
 function renderLoop(time: number) {
-  // Rotate camera slowly in yaw when not dragging
-  if (!isDragging) {
-    // Autoincrement yaw for subtle movement
+  // Handle camera flight modes
+  if (currentFlightMode === 'orbit') {
+    settings.camYaw += 0.004;
+    settings.camPitch = Math.sin(time * 0.0003) * 0.35;
+    settings.camRadius = 12.0;
+  } else if (currentFlightMode === 'plunge') {
+    const cycle = (time * 0.0005) % (2.0 * Math.PI);
+    settings.camRadius = 9.8 + Math.cos(cycle) * 4.8;
+    settings.camYaw += 0.006;
+    settings.camPitch = Math.sin(cycle) * 0.3;
+  } else if (currentFlightMode === 'flyby') {
+    const cycle = (time * 0.0004) % (2.0 * Math.PI);
+    settings.camRadius = 8.5 + Math.sin(cycle * 2.0) * 3.5;
+    settings.camYaw = cycle;
+    settings.camPitch = Math.cos(cycle) * 0.55;
+  } else if (!isDragging) {
+    // Autoincrement yaw for subtle movement in manual mode
     settings.camYaw += 0.001;
   }
 
@@ -275,3 +422,25 @@ function renderLoop(time: number) {
 // Initial update and start loop
 updateBubbles();
 requestAnimationFrame(renderLoop);
+
+// Physics Guide Info Modal Events
+const infoButton = document.getElementById('btn-info') as HTMLButtonElement;
+const infoModal = document.getElementById('info-modal') as HTMLDivElement;
+const modalClose = document.getElementById('modal-close') as HTMLButtonElement;
+
+if (infoButton && infoModal && modalClose) {
+  infoButton.addEventListener('click', () => {
+    infoModal.classList.remove('hidden');
+  });
+  
+  modalClose.addEventListener('click', () => {
+    infoModal.classList.add('hidden');
+  });
+  
+  infoModal.addEventListener('click', (e) => {
+    if (e.target === infoModal) {
+      infoModal.classList.add('hidden');
+    }
+  });
+}
+

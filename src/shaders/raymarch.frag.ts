@@ -16,6 +16,15 @@ uniform bool u_stars;
 uniform float u_disk_temp;
 uniform int u_max_steps;
 uniform sampler2D u_noise_tex;
+uniform float u_disk_thickness;
+uniform float u_disk_density;
+uniform float u_bloom_intensity;
+uniform float u_disk_speed;
+uniform bool u_show_photon_sphere;
+uniform bool u_shift_visualizer;
+uniform bool u_split_active;
+uniform float u_split_x;
+uniform int u_spectrum_mode;
 
 // Camera Uniforms
 uniform vec3 u_cam_pos;
@@ -29,7 +38,7 @@ const float PI = 3.14159265359;
 // Pseudo-random hash for stars
 float hash3(vec3 p) {
   p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-  p += dot(p.xyz, p.yzx + 19.19);
+  p += vec3(dot(p.xyz, p.yzx + 19.19));
   return fract(p.x * p.y * p.z);
 }
 
@@ -69,6 +78,7 @@ vec3 get_grid(vec3 dir) {
 
 // Fits blackbody temperature to RGB colors
 vec3 blackbody(float Temp) {
+  Temp = max(Temp, 0.0);
   float t = Temp / 1000.0;
   float r = 1.0;
   float g = 1.0;
@@ -95,10 +105,28 @@ vec3 blackbody(float Temp) {
   return vec3(r, g, b);
 }
 
+// Maps temperature and spectrum mode to custom visual profiles
+vec3 get_color_from_spectrum(float Temp, int mode) {
+  if (mode == 0) {
+    return blackbody(Temp);
+  }
+  float t = clamp(Temp / 12000.0, 0.0, 1.0);
+  if (mode == 1) {
+    // Nebula Glow: violet-blue to magenta-pink
+    return mix(vec3(0.18, 0.0, 0.5), vec3(1.0, 0.0, 0.55), t) * 2.2;
+  }
+  if (mode == 2) {
+    // Plasma Fire: dark red to bright yellow-orange to white
+    return mix(vec3(0.55, 0.05, 0.0), vec3(1.0, 0.88, 0.15), t) * 2.2;
+  }
+  // Quantum Shift: cyan-blue to neon green
+  return mix(vec3(0.0, 0.35, 0.8), vec3(0.0, 1.0, 0.35), t) * 2.2;
+}
+
 // Relativistic equations of motion in isotropic coordinates
 vec3 compute_force(vec3 x, vec3 v) {
-  float r = length(x);
-  float u = u_mass / (2.0 * r);
+  float r = max(length(x), u_mass * 0.5 + 0.001);
+  float u = min(u_mass / (2.0 * r), 0.999);
   float one_plus_u = 1.0 + u;
   float one_minus_u = 1.0 - u;
   
@@ -141,8 +169,8 @@ void rk4_step(inout vec3 x, inout vec3 v, float h) {
   v += (h / 6.0) * (a1 + 2.0 * a2 + 2.0 * a3 + a4);
   
   // Relativistic velocity normalization (Light speed constraint projection)
-  float r = length(x);
-  float u = u_mass / (2.0 * r);
+  float r = max(length(x), u_mass * 0.5 + 0.001);
+  float u = min(u_mass / (2.0 * r), 0.999);
   float n_ref = pow(1.0 + u, 3.0) / (1.0 - u);
   float target_v_len = 1.0 / n_ref;
   v = normalize(v) * target_v_len;
@@ -157,7 +185,7 @@ void sample_accretion_disk(vec3 x, vec3 v, float h, inout vec3 accum_color, inou
   float r_out = 9.5 * u_mass;
   
   if (r_xy >= r_in && r_xy <= r_out) {
-    float disk_thickness = 0.08 * u_mass;
+    float disk_thickness = u_disk_thickness * u_mass;
     
     // Vertical profile (Gaussian)
     float vertical_density = exp(-pow(x.z, 2.0) / (2.0 * pow(disk_thickness, 2.0)));
@@ -166,7 +194,7 @@ void sample_accretion_disk(vec3 x, vec3 v, float h, inout vec3 accum_color, inou
     float radial_density = pow(r_in / r_xy, 2.5);
     
     // Base density
-    float density = 1.8 * vertical_density * radial_density;
+    float density = u_disk_density * vertical_density * radial_density;
     
     if (density > 0.001) {
       // Keplerian velocity rotation: angular speed omega
@@ -175,11 +203,11 @@ void sample_accretion_disk(vec3 x, vec3 v, float h, inout vec3 accum_color, inou
       
       // Calculate rotation angle based on time and radius
       float phi = atan(x.y, x.x);
-      float phi_rotated = phi - u_time * (0.8 / (pow(r_xy, 1.5) + 0.1));
+      float phi_rotated = phi - u_time * u_disk_speed * (0.8 / (pow(r_xy, 1.5) + 0.1));
       
-      // Generate noise UV coordinates for gas structures
-      vec2 uv_noise1 = vec2(r_xy * 0.12 - u_time * 0.04, phi_rotated * 1.5 / (2.0 * PI));
-      vec2 uv_noise2 = vec2(r_xy * 0.28 + u_time * 0.08, phi_rotated * 3.0 / (2.0 * PI));
+      // Generate noise UV coordinates for gas structures with vertical shear
+      vec2 uv_noise1 = vec2(r_xy * 0.12 - u_time * 0.04, phi_rotated * 1.5 / (2.0 * PI) + x.z * 0.15);
+      vec2 uv_noise2 = vec2(r_xy * 0.28 + u_time * 0.08, phi_rotated * 3.0 / (2.0 * PI) - x.z * 0.15);
       
       float n1 = texture(u_noise_tex, uv_noise1).r;
       float n2 = texture(u_noise_tex, uv_noise2).g * 0.5;
@@ -206,8 +234,8 @@ void sample_accretion_disk(vec3 x, vec3 v, float h, inout vec3 accum_color, inou
       float g_doppler = sqrt(1.0 - beta * beta) / (1.0 - beta);
       
       // Gravitational Redshift factor: g_grav = (1 - M/2r) / (1 + M/2r)
-      float r = length(x);
-      float u = u_mass / (2.0 * r);
+      float r = max(length(x), u_mass * 0.5 + 0.001);
+      float u = min(u_mass / (2.0 * r), 0.999);
       float g_grav = (1.0 - u) / (1.0 + u);
       
       // Total frequency shift factor
@@ -215,7 +243,16 @@ void sample_accretion_disk(vec3 x, vec3 v, float h, inout vec3 accum_color, inou
       
       // Doppler shift the temperature and apply beaming (scaling by g^3.8)
       float T_obs = T * g_total;
-      vec3 emission_color = blackbody(T_obs);
+      vec3 emission_color = get_color_from_spectrum(T_obs, u_spectrum_mode);
+      if (u_shift_visualizer) {
+        if (g_total > 1.0) {
+          float t = clamp((g_total - 1.0) * 1.5, 0.0, 1.0);
+          emission_color = mix(vec3(0.1, 0.7, 0.1), vec3(0.0, 0.5, 1.0), t) * 2.0;
+        } else {
+          float t = clamp((1.0 - g_total) * 1.2, 0.0, 1.0);
+          emission_color = mix(vec3(0.1, 0.7, 0.1), vec3(1.0, 0.1, 0.0), t) * 2.0;
+        }
+      }
       
       // Apply absorption and emission along the ray step
       float dl = h;
@@ -229,18 +266,27 @@ void sample_accretion_disk(vec3 x, vec3 v, float h, inout vec3 accum_color, inou
   }
 }
 
+vec3 ACESFilm(vec3 x) {
+  float a = 2.51;
+  float b = 0.03;
+  float c = 2.43;
+  float d = 0.59;
+  float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+ 
 void main() {
   // Reconstruct camera ray from viewport coords
   vec2 p = (v_uv * 2.0 - 1.0);
-  p.x *= (u_resolution.x / u_resolution.y);
+  p.x *= (u_resolution.x / max(u_resolution.y, 1.0));
   
   vec3 ray_pos = u_cam_pos;
   vec3 ray_dir = normalize(u_cam_dir + p.x * u_fov_scale * u_cam_right + p.y * u_fov_scale * u_cam_up);
   vec3 ray_vel = ray_dir;
   
   // Set initial velocities to speed of light in isotropic coordinates at camera distance
-  float r_cam = length(ray_pos);
-  float u_cam = u_mass / (2.0 * r_cam);
+  float r_cam = max(length(ray_pos), u_mass * 0.5 + 0.001);
+  float u_cam = min(u_mass / (2.0 * r_cam), 0.999);
   float n_cam = pow(1.0 + u_cam, 3.0) / (1.0 - u_cam);
   ray_vel = ray_dir / n_cam;
   
@@ -252,7 +298,8 @@ void main() {
   float r_eh = u_mass * 0.5;
   
   // Relativistic vs standard raymarching
-  if (!u_relativity || u_mass == 0.0) {
+  bool render_newtonian = u_split_active && (v_uv.x > u_split_x);
+  if (!u_relativity || u_mass == 0.0 || render_newtonian) {
     // Standard flat-space raytracing
     // Simple intersection check with accretion disk plane (z = 0)
     if (u_disk) {
@@ -269,7 +316,7 @@ void main() {
             // Keplerian velocity rotation: angular speed omega
             float omega = 1.0 / (pow(r_xy, 1.5) + u_spin);
             float phi = atan(hit_pos.y, hit_pos.x);
-            float phi_rotated = phi - u_time * (0.8 / (pow(r_xy, 1.5) + 0.1));
+            float phi_rotated = phi - u_time * u_disk_speed * (0.8 / (pow(r_xy, 1.5) + 0.1));
             
             vec2 uv_noise1 = vec2(r_xy * 0.12 - u_time * 0.04, phi_rotated * 1.5 / (2.0 * PI));
             vec2 uv_noise2 = vec2(r_xy * 0.28 + u_time * 0.08, phi_rotated * 3.0 / (2.0 * PI));
@@ -277,7 +324,10 @@ void main() {
             float n2 = texture(u_noise_tex, uv_noise2).g * 0.5;
             float noise = (n1 + n2) / 1.5;
             
-            vec3 color = blackbody(T) * (0.25 + 0.75 * noise);
+            vec3 color = get_color_from_spectrum(T, u_spectrum_mode) * (0.25 + 0.75 * noise);
+            if (u_shift_visualizer) {
+              color = vec3(0.1, 0.7, 0.1) * (0.25 + 0.75 * noise) * 2.0;
+            }
             accum_color = color;
             accum_trans = 0.15; // semi-transparent
           }
@@ -302,7 +352,8 @@ void main() {
   float total_lambda = 0.0;
   bool captured = false;
   
-  for (int step = 0; step < u_max_steps; ++step) {
+  for (int step = 0; step < 300; ++step) {
+    if (step >= u_max_steps) break;
     float r = length(ray_pos);
     
     // Horizon collision check: r <= M/2 + delta
@@ -325,20 +376,65 @@ void main() {
     // Perform RK4 step
     rk4_step(ray_pos, ray_vel, h);
     
-    // Integrate accretion disk volume
-    if (u_disk) {
-      // Check if we crossed the z=0 plane or are currently within the disk volume
-      float sign_prev = prev_pos.z;
-      float sign_curr = ray_pos.z;
-      
-      // If we crossed the plane or are very close, sample the disk
-      if (sign_prev * sign_curr <= 0.0 || abs(ray_pos.z) < 0.18 * u_mass) {
-        // Interpolate position to get exact disk crossing coordinate
-        float fraction = abs(prev_pos.z) / (abs(prev_pos.z) + abs(ray_pos.z));
-        vec3 cross_pos = mix(prev_pos, ray_pos, fraction);
-        
-        sample_accretion_disk(cross_pos, ray_vel, h, accum_color, accum_trans);
+    // Photon sphere boundary visualization crossing
+    float r_prev = length(prev_pos);
+    float r_curr = length(ray_pos);
+    float r_ps = 3.0 * u_mass;
+    if (u_show_photon_sphere && u_mass > 0.0) {
+      if ((r_prev > r_ps && r_curr <= r_ps) || (r_prev < r_ps && r_curr >= r_ps)) {
+        accum_color += accum_trans * vec3(0.0, 1.0, 0.35) * 0.22;
       }
+    }
+    
+    // Orbiting Hotspots (3 glowing test particles tracing Keplerian orbits)
+    if (u_disk && u_mass > 0.0) {
+      for (int i = 0; i < 3; ++i) {
+        float r_orbit = 4.2 + float(i) * 2.0;
+        float omega = 1.0 / (pow(r_orbit, 1.5) + u_spin);
+        float phi = u_time * omega * u_disk_speed + float(i) * 2.0944; // 2*PI/3 spacing
+        vec3 p_orbit = vec3(cos(phi) * r_orbit, sin(phi) * r_orbit, 0.0);
+        
+        float dist = length(ray_pos - p_orbit);
+        if (dist < 0.35) {
+          // Relativistic Doppler beaming on the hotspot particle
+          vec3 v_gas = omega * vec3(-p_orbit.y, p_orbit.x, 0.0);
+          float gas_speed = length(v_gas);
+          if (gas_speed > 0.58) {
+            v_gas = (v_gas / gas_speed) * 0.58;
+          }
+          vec3 photon_dir = normalize(ray_vel);
+          float beta = dot(v_gas, photon_dir);
+          float g_doppler = sqrt(1.0 - beta * beta) / (1.0 - beta);
+          
+          float g_grav = (1.0 - u_mass / (2.0 * r_orbit)) / (1.0 + u_mass / (2.0 * r_orbit));
+          float g_total = g_doppler * g_grav;
+          
+          vec3 p_color = vec3(1.0, 0.45, 0.0);
+          if (i == 0) { p_color = vec3(1.0, 0.2, 0.1); }
+          else if (i == 1) { p_color = vec3(1.0, 0.7, 0.1); }
+          else { p_color = vec3(0.1, 0.8, 1.0); }
+          
+          if (u_shift_visualizer) {
+            if (g_total > 1.0) {
+              float t = clamp((g_total - 1.0) * 1.5, 0.0, 1.0);
+              p_color = mix(vec3(0.1, 0.7, 0.1), vec3(0.0, 0.5, 1.0), t) * 2.0;
+            } else {
+              float t = clamp((1.0 - g_total) * 1.2, 0.0, 1.0);
+              p_color = mix(vec3(0.1, 0.7, 0.1), vec3(1.0, 0.1, 0.0), t) * 2.0;
+            }
+          } else {
+            p_color = p_color * pow(g_total, 3.8);
+          }
+          
+          float density_p = exp(-pow(dist / 0.18, 2.0));
+          accum_color += accum_trans * p_color * density_p * 0.45;
+        }
+      }
+    }
+    
+    // Integrate accretion disk volume continuously along the ray (3D Volumetric)
+    if (u_disk) {
+      sample_accretion_disk(ray_pos, ray_vel, h, accum_color, accum_trans);
     }
     
     // If the ray has become almost completely absorbed, terminate early
@@ -363,9 +459,13 @@ void main() {
   // Combine lensed background with accumulated accretion disk glow
   vec3 color_out = accum_color + accum_trans * final_color;
   
-  // HDR tone mapping & Gamma correction (makes the glow look extremely rich)
-  color_out = color_out / (color_out + vec3(1.0)); // simple Reinhard tone mapping
-  color_out = pow(color_out, vec3(1.0 / 2.2));     // Gamma correction
+  // Draw divider line
+  if (u_split_active) {
+    float dist_to_line = abs(v_uv.x - u_split_x);
+    if (dist_to_line < 0.002) {
+      color_out = mix(vec3(0.0, 0.9, 1.0), color_out, dist_to_line / 0.002);
+    }
+  }
   
   fragColor = vec4(color_out, 1.0);
 }

@@ -58,3 +58,26 @@ Compile TypeScript and bundle the assets into static HTML/JS/CSS:
 npm run build
 ```
 The output will be placed in the `dist/` directory.
+
+---
+
+## High-Performance WebGPU Renderer (Browser)
+
+The frontend visualizer is powered by a high-performance **WebGPU** graphics pipeline written in **WGSL (WebGPU Shading Language)**. This allows the simulator to communicate directly with native Vulkan/DirectX12 device drivers on your GPU with near-zero driver overhead.
+
+### Dual-Pipeline Architecture
+To ensure compatibility across all devices, the application implements an automatic fallback mechanism:
+1. **WebGPU (High Performance)**: Default mode for modern browsers (Chrome, Edge, Opera) with native GPU performance.
+2. **WebGL2 (Compatibility Fallback)**: Used automatically if WebGPU is unsupported or disabled (e.g., Firefox, Safari without flags).
+3. **WebGL1 (Legacy Fallback)**: Translates shaders dynamically to support older devices and browsers.
+
+You can verify which pipeline is active in the **Telemetry** dashboard under the **Pipeline** indicator.
+
+---
+
+## Offline CUDA C++ Renderer (Optional / Reference)
+
+A native C++ and NVIDIA CUDA C++ implementation is located in the [cuda_raymarcher](file:///c:/Users/huevi/Documents/raymarcher/cuda_raymarcher/) subdirectory. This runs outside the browser context, rendering high-resolution frames of the black hole directly to `.bmp` image files.
+
+For build and running instructions of the C++/CUDA project, refer to the [CMake configuration](file:///c:/Users/huevi/Documents/raymarcher/cuda_raymarcher/CMakeLists.txt) and the source files within that directory.
+

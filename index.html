@@ -22,19 +22,39 @@
   <!-- Glassmorphic Dashboard Layout -->
   <div class="dashboard">
     <!-- Header -->
-    <header class="dashboard-header">
-      <h1>Event Horizon</h1>
-      <span class="subtitle">Relativistic Raymarcher v1.0</span>
+    <header class="dashboard-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <div>
+        <h1>Event Horizon</h1>
+        <span class="subtitle">Relativistic Raymarcher v1.0</span>
+      </div>
+      <button id="btn-info" class="btn-icon" title="Physics & Controls Guide" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; transition: var(--transition-smooth); margin-top: 4px; padding: 4px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="info-svg">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+      </button>
     </header>
 
     <!-- Preset Selector -->
-    <section class="panel preset-panel">
-      <h3>Presets</h3>
+    <section class="panel">
+      <h3>Visual Presets</h3>
       <div class="preset-buttons">
-        <button class="btn active" id="preset-gargantua">Gargantua (Medium Spin)</button>
-        <button class="btn" id="preset-micro">Micro Hole (High Mass)</button>
-        <button class="btn" id="preset-kerr">Kerr Extremum (Max Spin)</button>
-        <button class="btn" id="preset-newton">Newtonian (Flat Space)</button>
+        <button class="btn active" id="preset-gargantua">Gargantua</button>
+        <button class="btn" id="preset-micro">Micro-BH</button>
+        <button class="btn" id="preset-kerr">Kerr Extremum</button>
+        <button class="btn" id="preset-newton">Newtonian Space</button>
+      </div>
+    </section>
+
+    <!-- Cinematic Flight Paths -->
+    <section class="panel">
+      <h3>Cinematic Flight Paths</h3>
+      <div class="preset-buttons">
+        <button class="btn active" id="flight-manual">Manual</button>
+        <button class="btn" id="flight-orbit">Auto-Orbit</button>
+        <button class="btn" id="flight-plunge">Horizon Dive</button>
+        <button class="btn" id="flight-flyby">Warp Fly-By</button>
       </div>
     </section>
 
@@ -58,6 +78,24 @@
           <span class="val-bubble" id="val-spin">0.60</span>
         </label>
         <input type="range" id="param-spin" min="0.0" max="0.99" step="0.01" value="0.60">
+      </div>
+
+      <!-- Disk Thickness Slider -->
+      <div class="control-group">
+        <label for="param-disk-thickness">
+          <span>Disk Thickness</span>
+          <span class="val-bubble" id="val-disk-thickness">0.08</span>
+        </label>
+        <input type="range" id="param-disk-thickness" min="0.01" max="0.50" step="0.01" value="0.08">
+      </div>
+
+      <!-- Disk Density Slider -->
+      <div class="control-group">
+        <label for="param-disk-density">
+          <span>Disk Density</span>
+          <span class="val-bubble" id="val-disk-density">1.80</span>
+        </label>
+        <input type="range" id="param-disk-density" min="0.10" max="5.00" step="0.05" value="1.80">
       </div>
 
       <!-- Toggle standard vs relativistic -->
@@ -98,12 +136,67 @@
         </label>
       </div>
 
+      <div class="control-row">
+        <span>Photon Sphere Shell</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-photon-sphere">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="control-row">
+        <span>Shift Color Mode</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-shift-visualizer">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="control-row">
+        <span>Split Screen comparison</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-split-screen">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Glow/Bloom Intensity Slider -->
+      <div class="control-group">
+        <label for="param-bloom-intensity">
+          <span>Glow Intensity</span>
+          <span class="val-bubble" id="val-bloom-intensity">1.00</span>
+        </label>
+        <input type="range" id="param-bloom-intensity" min="0.00" max="2.00" step="0.05" value="1.00">
+      </div>
+
+      <!-- Disk Rotation Speed Slider -->
+      <div class="control-group">
+        <label for="param-disk-speed">
+          <span>Disk Speed</span>
+          <span class="val-bubble" id="val-disk-speed">1.00</span>
+        </label>
+        <input type="range" id="param-disk-speed" min="0.00" max="2.00" step="0.10" value="1.00">
+      </div>
+
       <div class="control-group">
         <label for="param-disk-temp">
           <span>Disk Temp (K)</span>
-          <span class="val-bubble" id="val-disk-temp">6500</span>
+          <span class="val-bubble" id="val-disk-temp">6500 K</span>
         </label>
         <input type="range" id="param-disk-temp" min="1000" max="15000" step="100" value="6500">
+      </div>
+
+      <!-- Color Spectrum Profile Selector -->
+      <div class="control-group">
+        <label for="param-spectrum-mode">
+          <span>Color Spectrum Profile</span>
+        </label>
+        <select id="param-spectrum-mode" style="width: 100%; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--panel-border); color: var(--color-text-main); padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; outline: none; transition: var(--transition-smooth); cursor: pointer;">
+          <option value="0">Planckian (Realistic Thermal)</option>
+          <option value="1">Nebula Glow (Violet & Magenta)</option>
+          <option value="2">Plasma Fire (Orange & Gold)</option>
+          <option value="3">Quantum Shift (Cyan & Neon)</option>
+        </select>
       </div>
 
       <div class="control-group">
@@ -161,6 +254,61 @@
   <!-- Custom mouse navigation helper text -->
   <div class="interaction-hint">
     Drag to rotate camera • Scroll to zoom
+  </div>
+
+  <!-- Physics & Controls Info Modal -->
+  <div id="info-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Physics & Simulator Guide</h2>
+        <button id="modal-close" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>This simulator renders a <strong>Schwarzschild / Kerr Black Hole</strong> in real-time by tracing individual photon trajectories (null geodesics) through a gravitationally curved spacetime.</p>
+        
+        <div class="physics-section">
+          <h4>1. General Relativity & Bending of Light</h4>
+          <p>Light rays travel along curved paths around the mass. The integration uses a <strong>4th-Order Runge-Kutta (RK4)</strong> solver to step the photon through the geodesic equation.</p>
+          <div class="physics-eqn">
+            Radial Gravitational Force: a_grav = -M * (1 + u)⁵ * (2 - u) / (r³ * (1 - u)³) * x
+          </div>
+          <p style="font-size: 0.75rem; font-style: italic;">Where M is mass, r is radius, and u = M / (2 * r) in isotropic coordinates.</p>
+        </div>
+
+        <div class="physics-section">
+          <h4>2. Black Hole Spin (Frame Dragging)</h4>
+          <p>A rotating (Kerr) black hole drags spacetime itself in the direction of spin. Spacetime rotation applies a <strong>gravitational Coriolis force</strong> that deflects light asymmetrically.</p>
+          <div class="physics-eqn">
+            Frame Dragging: ω = 2 * J / (r³ * (1 + u)⁶),  F_dragging = 2 * (v x ω)
+          </div>
+          <p style="font-size: 0.75rem; font-style: italic;">Where J = M * spin is the angular momentum, v is velocity, and ω is frame dragging vector.</p>
+        </div>
+
+        <div class="physics-section">
+          <h4>3. Accretion Disk Physics (True 3D Volumetric)</h4>
+          <p>Superheated plasma orbits the event horizon at relativistic speeds. Rather than using a simplified flat plane intersection, the simulator integrates emission and absorption step-by-step through the 3D volume of the disk. Vertical noise shear is applied to construct volumetric swirls.</p>
+          <div class="physics-eqn">
+            Thickness & Density: ρ(r, z) = ρ_density * (r_in / r_xy)²·⁵ * exp(-z² / (2 * disk_thickness²))
+          </div>
+        </div>
+
+        <div class="physics-section">
+          <h4>4. Doppler Beaming & Gravitational Redshift</h4>
+          <p>The disk is highly asymmetrical due to two factors: (1) <strong>Doppler Beaming</strong> makes gas traveling towards you appear blindingly bright (blueshifted) and gas traveling away look dim (redshifted). (2) <strong>Gravitational Redshift</strong> drains light energy as it climbs out of the gravity well.</p>
+          <div class="physics-eqn">
+            Total Shift: g_total = g_doppler * g_grav,  T_observed = T_disk * g_total
+          </div>
+        </div>
+
+        <div class="physics-section">
+          <h4>5. Blackbody Radiation Fit</h4>
+          <p>Colors are calculated by evaluating the observed temperature at each point in the disk and mapping the Planckian emission spectrum to standard sRGB space.</p>
+          <div class="physics-eqn">
+            Planck Law: B_ν(T) = (2*h*ν³ / c²) * [ 1 / (e^(h*ν / k_B*T) - 1) ]
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
