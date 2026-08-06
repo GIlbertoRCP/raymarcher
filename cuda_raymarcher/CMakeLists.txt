@@ -12,6 +12,9 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89")
 endif()
 
+# Enable CUDA Hardware Fast Math Intrinsic Optimizations (-O3 --use_fast_math)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --use_fast_math -O3")
+
 # Fetch GLFW from GitHub automatically
 include(FetchContent)
 FetchContent_Declare(

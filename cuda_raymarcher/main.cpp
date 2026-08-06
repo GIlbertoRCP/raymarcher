@@ -171,6 +171,12 @@ static double lastMouseY = 0.0;
 static bool isPaused = false;
 static bool takeSnapshot = false;
 
+// CUDA Real-Time Profiler & Metrics Overlay State
+static float latencyHistory[120] = { 0.0f };
+static int latencyIndex = 0;
+static unsigned long long* d_live_step_counter = nullptr;
+static cudaEvent_t liveStart, liveStop;
+
 // Compute camera vectors based on yaw, pitch, radius
 void updateCamera() {
     float cosPitch = cosf(camPitch);
@@ -459,6 +465,14 @@ int main(int argc, char** argv) {
     settings.ao_enabled = 0;
     settings.ao_intensity = 1.0f;
 
+    // GW, TAA & Polarization Defaults
+    settings.gw_enabled = 0;
+    settings.gw_amplitude = 0.05f;
+    settings.gw_frequency = 1.20f;
+    settings.polarization_mode = 0;
+    settings.taa_enabled = 0;
+    settings.taa_blend = 0.15f;
+
     bool runBenchmarkOnly = false;
     
     // Parse arguments
@@ -561,6 +575,32 @@ int main(int argc, char** argv) {
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
+
+    // Initialize CUDA events & step counters for real-time profiling overlay
+    cudaEventCreate(&liveStart);
+    cudaEventCreate(&liveStop);
+    cudaMalloc((void**)&d_live_step_counter, sizeof(unsigned long long));
+
+    // Allocate VRAM history buffer for Temporal Anti-Aliasing (TAA)
+    float4* d_history_buffer = nullptr;
+    cudaMalloc((void**)&d_history_buffer, width * height * sizeof(float4));
+    cudaMemset(d_history_buffer, 0, width * height * sizeof(float4));
+
+    // Multi-GPU Device & Topology Detection
+    int deviceCount = 0;
+    std::string gpuDeviceName = "NVIDIA GPU Target";
+    int gpuComputeCapability = 75;
+    size_t gpuVRAMTotalMB = 0;
+    cudaGetDeviceCount(&deviceCount);
+    if (deviceCount > 0) {
+        cudaDeviceProp prop;
+        cudaGetDeviceProperties(&prop, 0);
+        gpuDeviceName = prop.name;
+        gpuComputeCapability = prop.major * 10 + prop.minor;
+        gpuVRAMTotalMB = prop.totalGlobalMem / (1024 * 1024);
+        std::cout << "[CUDA Hardware Engine] Detected " << deviceCount << " GPU Device(s). Primary: "
+                  << gpuDeviceName << " (sm_" << gpuComputeCapability << ", " << gpuVRAMTotalMB << " MB VRAM)\n";
+    }
     
     // Print keyboard instructions
     std::cout << "=========================================================\n";
@@ -631,6 +671,39 @@ int main(int argc, char** argv) {
         
         // Update camera position vectors from orbit angles
         updateCamera();
+
+        // Check for window size changes and dynamically update render buffers
+        int winWidth, winHeight;
+        glfwGetFramebufferSize(window, &winWidth, &winHeight);
+        winWidth = std::max(256, winWidth);
+        winHeight = std::max(256, winHeight);
+
+        if (winWidth != width || winHeight != height) {
+            width = winWidth;
+            height = winHeight;
+            settings.resolution = make_float2((float)width, (float)height);
+
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            if (cuda_pbo_resource) {
+                cudaGraphicsUnregisterResource(cuda_pbo_resource);
+                cuda_pbo_resource = nullptr;
+            }
+
+            my_glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+            my_glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * sizeof(float4), NULL, GL_DYNAMIC_DRAW);
+            my_glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+            cudaGraphicsGLRegisterBuffer(&cuda_pbo_resource, pbo, cudaGraphicsRegisterFlagsWriteDiscard);
+
+            if (d_history_buffer) {
+                cudaFree(d_history_buffer);
+                cudaMalloc((void**)&d_history_buffer, width * height * sizeof(float4));
+                cudaMemset(d_history_buffer, 0, width * height * sizeof(float4));
+            }
+        }
         
         // Map OpenGL Pixel Buffer Object to CUDA memory space
         float4* d_output = nullptr;
@@ -638,8 +711,36 @@ int main(int argc, char** argv) {
         cudaGraphicsMapResources(1, &cuda_pbo_resource, 0);
         cudaGraphicsResourceGetMappedPointer((void**)&d_output, &num_bytes, cuda_pbo_resource);
         
-        // Launch parallel CUDA raymarch kernel
-        run_raymarch_kernel(d_output, nullptr, settings, noiseTex);
+        // Launch parallel CUDA raymarch kernel with precise execution timing
+        cudaMemset(d_live_step_counter, 0, sizeof(unsigned long long));
+        cudaEventRecord(liveStart);
+        run_raymarch_kernel(d_output, d_live_step_counter, settings, noiseTex);
+
+        if (settings.taa_enabled && d_history_buffer) {
+            apply_temporal_reprojection(d_output, d_history_buffer, width, height, settings.taa_blend);
+        }
+
+        cudaEventRecord(liveStop);
+        cudaEventSynchronize(liveStop);
+
+        float kernelTimeMs = 0.0f;
+        cudaEventElapsedTime(&kernelTimeMs, liveStart, liveStop);
+
+        unsigned long long hostRaySteps = 0;
+        cudaMemcpy(&hostRaySteps, d_live_step_counter, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+
+        size_t freeMem = 0, totalMem = 0;
+        cudaMemGetInfo(&freeMem, &totalMem);
+        double usedVRAM_MB = (double)(totalMem - freeMem) / (1024.0 * 1024.0);
+        double totalVRAM_MB = (double)totalMem / (1024.0 * 1024.0);
+
+        double totalPixels = (double)width * (double)height;
+        double mRaysPerSec = (kernelTimeMs > 0.0001f) ? (totalPixels * 1000.0 / kernelTimeMs) / 1e6 : 0.0;
+        double mStepsPerSec = (kernelTimeMs > 0.0001f) ? ((double)hostRaySteps * 1000.0 / kernelTimeMs) / 1e6 : 0.0;
+
+        // Push kernel latency to rolling history buffer
+        latencyHistory[latencyIndex] = kernelTimeMs;
+        latencyIndex = (latencyIndex + 1) % 120;
         
         // Unmap the interop resource
         cudaGraphicsUnmapResources(1, &cuda_pbo_resource, 0);
@@ -663,10 +764,8 @@ int main(int argc, char** argv) {
             delete[] hostBuffer;
         }
         
-        // Get window dimensions to dynamically fit the viewport
-        int winWidth, winHeight;
-        glfwGetWindowSize(window, &winWidth, &winHeight);
-        glViewport(0, 0, winWidth, winHeight);
+        // Set glViewport to fit current window size
+        glViewport(0, 0, width, height);
         
         // Draw fullscreen textured quad representing the raymarch frame
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -688,16 +787,28 @@ int main(int argc, char** argv) {
         ImGui::NewFrame();
 
         ImGui::SetNextWindowPos(ImVec2(15, 15), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(380, 660), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(410, 720), ImGuiCond_FirstUseEver);
 
         if (ImGui::Begin("Event Horizon - CUDA Controls", nullptr, ImGuiWindowFlags_AlwaysUseWindowPadding)) {
             ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "NVIDIA CUDA Raymarcher v2.0");
             ImGui::Separator();
 
-            // Telemetry Badge
-            float fpsVal = (framesCounted > 0) ? (float)framesCounted / (float)(currentFrameTime - lastFPSTime + 1e-4) : 60.0f;
-            ImGui::Text("FPS: %.1f | Frame: %.2f ms", fpsVal, 1000.0f / fmaxf(fpsVal, 1.0f));
-            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "[NVIDIA CUDA Cores Active]");
+            // Real-Time CUDA Profiler & Telemetry Panel
+            if (ImGui::CollapsingHeader("Real-Time CUDA Profiler & Metrics", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Text("GPU Device: %s (sm_%d)", gpuDeviceName.c_str(), gpuComputeCapability);
+                float fpsVal = (framesCounted > 0) ? (float)framesCounted / (float)(currentFrameTime - lastFPSTime + 1e-4) : (1000.0f / fmaxf(kernelTimeMs, 0.001f));
+                ImGui::Text("Viewport FPS: %.1f FPS", fpsVal);
+                ImGui::Text("CUDA Kernel Latency: %.3f ms", kernelTimeMs);
+                ImGui::PlotLines("Latency Graph", latencyHistory, 120, latencyIndex, "0..5ms", 0.0f, 5.0f, ImVec2(0, 40));
+
+                ImGui::Text("GPU VRAM Usage: %.1f MB / %.1f MB", usedVRAM_MB, totalVRAM_MB);
+                float vramFraction = (float)(usedVRAM_MB / fmax(totalVRAM_MB, 1.0));
+                ImGui::ProgressBar(vramFraction, ImVec2(-1, 14));
+
+                ImGui::Text("Rays Throughput: %.2f Million Rays/sec", mRaysPerSec);
+                ImGui::Text("Step Throughput: %.2f Million Steps/sec", mStepsPerSec);
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "[NVIDIA CUDA Cores Active]");
+            }
             ImGui::Separator();
 
             // Presets
@@ -738,6 +849,19 @@ int main(int argc, char** argv) {
                 ImGui::Combo("Color Spectrum", &settings.spectrum_mode, spectrumItems, IM_ARRAYSIZE(spectrumItems));
             }
 
+            if (ImGui::CollapsingHeader("Gravitational Wave Perturbations (h_ij)")) {
+                bool gw = (settings.gw_enabled != 0);
+                if (ImGui::Checkbox("Gravitational Waves", &gw)) settings.gw_enabled = gw ? 1 : 0;
+                ImGui::SliderFloat("Wave Strain (Amplitude)", &settings.gw_amplitude, 0.00f, 0.20f, "%.3f");
+                ImGui::SliderFloat("Wave Frequency (Hz)", &settings.gw_frequency, 0.10f, 5.00f, "%.2f");
+            }
+
+            if (ImGui::CollapsingHeader("Adaptive Temporal Sampling (TAA)")) {
+                bool taa = (settings.taa_enabled != 0);
+                if (ImGui::Checkbox("Temporal Anti-Aliasing", &taa)) settings.taa_enabled = taa ? 1 : 0;
+                ImGui::SliderFloat("Blend Alpha", &settings.taa_blend, 0.05f, 0.50f, "%.2f");
+            }
+
             if (ImGui::CollapsingHeader("CSG Geometry & Mechanics")) {
                 const char* csgItems[] = { "Disabled", "Union", "Smooth Min", "Subtraction", "Intersection" };
                 ImGui::Combo("CSG Operation", &settings.csg_mode, csgItems, IM_ARRAYSIZE(csgItems));
@@ -760,6 +884,9 @@ int main(int argc, char** argv) {
 
                 bool dsk = (settings.disk != 0);
                 if (ImGui::Checkbox("Accretion Disk", &dsk)) settings.disk = dsk ? 1 : 0;
+
+                bool pol = (settings.polarization_mode != 0);
+                if (ImGui::Checkbox("Synchrotron Polarization Vector Overlay", &pol)) settings.polarization_mode = pol ? 1 : 0;
 
                 bool str = (settings.stars != 0);
                 if (ImGui::Checkbox("Starfield Background", &str)) { settings.stars = str ? 1 : 0; if (str) settings.grid = 0; }
@@ -807,6 +934,10 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+
+    cudaEventDestroy(liveStart);
+    cudaEventDestroy(liveStop);
+    if (d_live_step_counter) cudaFree(d_live_step_counter);
 
     cudaGraphicsUnregisterResource(cuda_pbo_resource);
     cudaDestroyTextureObject(noiseTex);

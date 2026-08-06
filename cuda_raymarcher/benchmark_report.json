@@ -1,0 +1,29 @@
+[
+  {
+    "preset": "1080p",
+    "width": 1920,
+    "height": 1080,
+    "avg_frame_time_ms": 0.127,
+    "fps": 7877.62,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 522.72
+  },
+  {
+    "preset": "1440p",
+    "width": 2560,
+    "height": 1440,
+    "avg_frame_time_ms": 0.185,
+    "fps": 5416.32,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 638.94
+  },
+  {
+    "preset": "4K",
+    "width": 3840,
+    "height": 2160,
+    "avg_frame_time_ms": 0.379,
+    "fps": 2641.74,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 701.17
+  }
+]

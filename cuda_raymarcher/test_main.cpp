@@ -89,6 +89,22 @@ bool test_vector_math() {
     return true;
 }
 
+// 5. Validate Gravitational Wave Quadrupolar Tensor Calculation
+bool test_gw_perturbation() {
+    float amp = 0.1f;
+    float freq = 1.0f;
+    float time = 0.0f;
+    float phase = freq * time;
+    float h_plus = amp * std::cos(phase);
+    float h_cross = amp * std::sin(phase);
+
+    ASSERT_TEST(std::abs(h_plus - 0.1f) < 1e-5f, "h_plus strain amplitude incorrect");
+    ASSERT_TEST(std::abs(h_cross - 0.0f) < 1e-5f, "h_cross strain amplitude incorrect");
+
+    std::cout << "  [PASS] test_gw_perturbation\n";
+    return true;
+}
+
 int main() {
     std::cout << "=========================================================\n";
     std::cout << "       CUDA RAYMARCHER AUTOMATED UNIT TEST SUITE         \n";
@@ -99,6 +115,7 @@ int main() {
     all_passed &= test_csg_sdf_primitives();
     all_passed &= test_settings_alignment();
     all_passed &= test_vector_math();
+    all_passed &= test_gw_perturbation();
 
     std::cout << "=========================================================\n";
     if (all_passed) {

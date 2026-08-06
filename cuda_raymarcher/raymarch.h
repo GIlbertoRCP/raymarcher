@@ -33,11 +33,24 @@ struct SimulationSettings {
     int ao_enabled;       // 0: Off, 1: SDF Ambient Occlusion
     float ao_intensity;   // Ambient Occlusion intensity
 
+    // Gravitational Waves & Relativistic Polarization
+    int gw_enabled;       // 0: Off, 1: Gravitational wave metric strain active
+    float gw_amplitude;   // Strain wave amplitude A_gw
+    float gw_frequency;   // Wave frequency omega_gw
+    int polarization_mode;// 0: Off, 1: Synchrotron Stokes linear polarization overlay
+    int taa_enabled;      // 0: Off, 1: Temporal Anti-Aliasing (TAA) accumulation
+    float taa_blend;      // Reprojection blending alpha
+
     float3 cam_pos;
     float3 cam_dir;
     float3 cam_up;
     float3 cam_right;
     float fov_scale;
+
+    // 16-Byte Uniform Buffer Alignment Padding
+    float padding0;
+    float padding1;
+    float padding2;
 };
 
 // Benchmark metrics summary structure
@@ -51,12 +64,21 @@ struct BenchmarkResult {
     double memory_throughput_gbps;
 };
 
-// Launch function declaration for the CUDA kernel
+// Launch function declaration for the CUDA raymarch kernel
 extern "C" void run_raymarch_kernel(
     float4 *d_output,
     unsigned long long *d_step_counter,
     SimulationSettings settings,
     cudaTextureObject_t noiseTex
+);
+
+// Launch function declaration for temporal reprojection (TAA) blending
+extern "C" void apply_temporal_reprojection(
+    float4 *d_current,
+    float4 *d_history,
+    int width,
+    int height,
+    float blend_alpha
 );
 
 #endif // RAYMARCH_H

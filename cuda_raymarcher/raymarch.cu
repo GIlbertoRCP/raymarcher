@@ -137,8 +137,25 @@ __device__ float3 blackbody(float Temp) {
     return make_float3(r, g, b);
 }
 
+// Quadrupolar Gravitational Wave metric strain acceleration
+__device__ inline float3 evaluate_gw_force(float3 pos, float3 vel, float time, float amp, float freq) {
+    if (amp <= 0.0001f) return make_float3(0.0f, 0.0f, 0.0f);
+    float phase = freq * time - 0.5f * pos.z;
+    float cos_p = cosf(phase);
+    float sin_p = sinf(phase);
+
+    float h_plus = amp * cos_p;
+    float h_cross = amp * sin_p;
+
+    float3 f;
+    f.x = 0.5f * freq * (-h_plus * vel.x + h_cross * vel.y) * sin_p;
+    f.y = 0.5f * freq * ( h_cross * vel.x + h_plus * vel.y) * sin_p;
+    f.z = -0.25f * freq * (h_plus * (vel.x * vel.x - vel.y * vel.y) + 2.0f * h_cross * vel.x * vel.y) * cos_p;
+    return f;
+}
+
 // Relativistic equations of motion in isotropic coordinates
-__device__ float3 compute_force(float3 x, float3 v, float mass, float spin) {
+__device__ float3 compute_force(float3 x, float3 v, float mass, float spin, SimulationSettings settings) {
     float x_len = sqrtf(x.x*x.x + x.y*x.y + x.z*x.z);
     float r = fmaxf(x_len, mass * 0.5f + 0.001f);
     float u = fminf(mass / (2.0f * r), 0.999f);
@@ -147,36 +164,45 @@ __device__ float3 compute_force(float3 x, float3 v, float mass, float spin) {
     
     float num = -mass * powf(one_plus_u, 5.0f) * (2.0f - u);
     float den = powf(r, 3.0f) * powf(one_minus_u, 3.0f);
-    float3 f_grav = mul(x, num / den);
+    float3 f_total = mul(x, num / den);
     
     if (spin > 0.0f) {
         float j = mass * spin;
         float omega = 2.0f * j / (powf(r, 3.0f) * powf(one_plus_u, 6.0f));
         float3 omega_vec = make_float3(0.0f, 0.0f, omega);
         float3 f_fd = mul(cross_product(v, omega_vec), 2.0f);
-        return make_float3(f_grav.x + f_fd.x, f_grav.y + f_fd.y, f_grav.z + f_fd.z);
+        f_total.x += f_fd.x;
+        f_total.y += f_fd.y;
+        f_total.z += f_fd.z;
+    }
+
+    if (settings.gw_enabled) {
+        float3 f_gw = evaluate_gw_force(x, v, settings.time, settings.gw_amplitude, settings.gw_frequency);
+        f_total.x += f_gw.x;
+        f_total.y += f_gw.y;
+        f_total.z += f_gw.z;
     }
     
-    return f_grav;
+    return f_total;
 }
 
 // Single step of Runge-Kutta 4th order integration
-__device__ void rk4_step(float3 &x, float3 &v, float h, float mass, float spin) {
+__device__ void rk4_step(float3 &x, float3 &v, float h, float mass, float spin, SimulationSettings settings) {
     float3 x1 = x;
     float3 v1 = v;
-    float3 a1 = compute_force(x1, v1, mass, spin);
+    float3 a1 = compute_force(x1, v1, mass, spin, settings);
     
     float3 x2 = make_float3(x.x + 0.5f * h * v1.x, x.y + 0.5f * h * v1.y, x.z + 0.5f * h * v1.z);
     float3 v2 = make_float3(v.x + 0.5f * h * a1.x, v.y + 0.5f * h * a1.y, v.z + 0.5f * h * a1.z);
-    float3 a2 = compute_force(x2, v2, mass, spin);
+    float3 a2 = compute_force(x2, v2, mass, spin, settings);
     
     float3 x3 = make_float3(x.x + 0.5f * h * v2.x, x.y + 0.5f * h * v2.y, x.z + 0.5f * h * v2.z);
     float3 v3 = make_float3(v.x + 0.5f * h * a2.x, v.y + 0.5f * h * a2.y, v.z + 0.5f * h * a2.z);
-    float3 a3 = compute_force(x3, v3, mass, spin);
+    float3 a3 = compute_force(x3, v3, mass, spin, settings);
     
     float3 x4 = make_float3(x.x + h * v3.x, x.y + h * v3.y, x.z + h * v3.z);
     float3 v4 = make_float3(v.x + h * a3.x, v.y + h * a3.y, v.z + h * a3.z);
-    float3 a4 = compute_force(x4, v4, mass, spin);
+    float3 a4 = compute_force(x4, v4, mass, spin, settings);
     
     x.x += (h / 6.0f) * (v1.x + 2.0f * v2.x + 2.0f * v3.x + v4.x);
     x.y += (h / 6.0f) * (v1.y + 2.0f * v2.y + 2.0f * v3.y + v4.y);
@@ -297,6 +323,11 @@ __device__ void sample_accretion_disk(
                     float t = fmaxf(0.0f, fminf((1.0f - g_total) * 1.2f, 1.0f));
                     emission_color = mix(make_float3(0.1f, 0.7f, 0.1f), make_float3(1.0f, 0.1f, 0.0f), t) * 2.0f;
                 }
+            } else if (settings.polarization_mode != 0) {
+                // Synchrotron Linear Polarization Direction Vector E_pol = v_gas x B (where B = toroidal -y, x, 0)
+                float pol_angle = atan2f(v_gas.y, v_gas.x);
+                float pol_t = 0.5f + 0.5f * sinf(pol_angle * 2.0f);
+                emission_color = mix(make_float3(1.0f, 0.1f, 0.8f), make_float3(0.0f, 0.9f, 1.0f), pol_t) * 2.5f;
             }
             
             float dl = h;
@@ -589,10 +620,16 @@ __global__ void raymarch_kernel(
             }
         }
         
-        float h_step = 0.18f * (0.05f + 0.95f * fmaxf(0.0f, fminf((r - r_eh) / 5.0f, 1.0f)));
+        float r_dist = fmaxf(0.0f, r - r_eh);
+        float h_base = 0.05f + 0.35f * fminf(r_dist / 4.0f, 1.0f);
+        if (r > 6.0f * fmaxf(s_settings.mass, 0.1f)) {
+            float extra_dist = r - 6.0f * fmaxf(s_settings.mass, 0.1f);
+            h_base += 0.08f * extra_dist * extra_dist;
+        }
+        float h_step = fminf(h_base, 1.25f);
         float3 prev_pos = ray_pos;
         
-        rk4_step(ray_pos, ray_vel, h_step, s_settings.mass, s_settings.spin);
+        rk4_step(ray_pos, ray_vel, h_step, s_settings.mass, s_settings.spin, s_settings);
         
         // Photon sphere boundary visualization crossing
         if (s_settings.show_photon_sphere != 0 && s_settings.mass > 0.0f) {
@@ -692,17 +729,18 @@ __global__ void raymarch_kernel(
         }
 
         // 2. CUDA Warp-level optimization: Early warp exit check
-        if (!__any_sync(0xFFFFFFFF, active)) {
+        unsigned int active_mask = __activemask();
+        if (!__any_sync(active_mask, active)) {
             break;
         }
     }
     
     // 3. CUDA Warp Reduction for performance metrics step counter
     if (d_step_counter != nullptr) {
-        unsigned int mask = 0xFFFFFFFF;
+        unsigned int active_mask = __activemask();
         unsigned int warp_steps = thread_steps;
         for (int offset = 16; offset > 0; offset /= 2) {
-            warp_steps += __shfl_down_sync(mask, warp_steps, offset);
+            warp_steps += __shfl_down_sync(active_mask, warp_steps, offset);
         }
         int lane = (threadIdx.x + threadIdx.y * blockDim.x) % 32;
         if (lane == 0 && warp_steps > 0) {
@@ -758,11 +796,44 @@ extern "C" void run_raymarch_kernel(
     SimulationSettings settings,
     cudaTextureObject_t noiseTex
 ) {
-    dim3 block(16, 16);
+    dim3 block(32, 8);
     dim3 grid(
         ((int)settings.resolution.x + block.x - 1) / block.x,
         ((int)settings.resolution.y + block.y - 1) / block.y
     );
     raymarch_kernel<<<grid, block>>>(d_output, d_step_counter, settings, noiseTex);
+    cudaDeviceSynchronize();
+}
+
+// Temporal Anti-Aliasing (TAA) reprojection blending kernel
+__global__ void taa_blend_kernel(float4* current, float4* history, int width, int height, float alpha) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    int idx = y * width + x;
+    float4 currColor = current[idx];
+    float4 histColor = history[idx];
+
+    float4 blended;
+    blended.x = histColor.x * (1.0f - alpha) + currColor.x * alpha;
+    blended.y = histColor.y * (1.0f - alpha) + currColor.y * alpha;
+    blended.z = histColor.z * (1.0f - alpha) + currColor.z * alpha;
+    blended.w = 1.0f;
+
+    current[idx] = blended;
+    history[idx] = blended;
+}
+
+extern "C" void apply_temporal_reprojection(
+    float4 *d_current,
+    float4 *d_history,
+    int width,
+    int height,
+    float blend_alpha
+) {
+    dim3 block(32, 8);
+    dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
+    taa_blend_kernel<<<grid, block>>>(d_current, d_history, width, height, blend_alpha);
     cudaDeviceSynchronize();
 }
