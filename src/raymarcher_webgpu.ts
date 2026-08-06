@@ -6,14 +6,14 @@ export class WebGPURaymarcher {
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
   
-  // Pipeline 1: Raymarching Physics (HDR target)
-  private pipeline!: GPURenderPipeline;
+  // Pipeline 1: Compute Shader Raymarching Physics
+  private computePipeline!: GPUComputePipeline;
   private uniformBuffer!: GPUBuffer;
   private noiseTexture!: GPUTexture;
   private noiseSampler!: GPUSampler;
   private bindGroup!: GPUBindGroup;
   
-  // Pipeline 2: Bloom Post-Processing & Compositing
+  // Pipeline 2: Screen Compositing & Multi-Tap Bloom
   private compositePipeline!: GPURenderPipeline;
   private sceneSampler!: GPUSampler;
   private hdrTexture: GPUTexture | null = null;
@@ -62,20 +62,20 @@ export class WebGPURaymarcher {
         alphaMode: 'opaque',
       });
 
-      // Compile shader module (contains physics and composite passes)
+      // Compile compute and compositing WGSL shader module
       const shaderModule = this.device.createShaderModule({
-        label: 'Relativistic Raymarching Shaders',
+        label: 'Compute Raymarching & Compositing WGSL Shaders',
         code: raymarchWGSL,
       });
 
-      // Create uniform buffer (144 bytes total)
+      // Create uniform buffer (192 bytes total aligned)
       this.uniformBuffer = this.device.createBuffer({
         label: 'Raymarcher Uniform Buffer',
-        size: 144,
+        size: 192,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
-      // Create noise texture for accretion disk structures (256x256 RGBA)
+      // Create noise texture for accretion disk turbulence (256x256 RGBA)
       const size = 256;
       this.noiseTexture = this.device.createTexture({
         label: 'Accretion Disk Noise Texture',
@@ -84,12 +84,11 @@ export class WebGPURaymarcher {
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
 
-      // Generate random high frequency noise values
       const noiseData = new Uint8Array(size * size * 4);
       for (let i = 0; i < size * size * 4; i += 4) {
-        noiseData[i] = Math.floor(Math.random() * 255);     // Red
-        noiseData[i + 1] = Math.floor(Math.random() * 255); // Green
-        noiseData[i + 2] = Math.floor(Math.random() * 255); // Blue
+        noiseData[i]     = Math.floor(Math.random() * 255);
+        noiseData[i + 1] = Math.floor(Math.random() * 255);
+        noiseData[i + 2] = Math.floor(Math.random() * 255);
         noiseData[i + 3] = 255;
       }
 
@@ -100,7 +99,6 @@ export class WebGPURaymarcher {
         [size, size, 1]
       );
 
-      // Create linear wrap noise sampler
       this.noiseSampler = this.device.createSampler({
         label: 'Noise Sampler',
         addressModeU: 'repeat',
@@ -109,38 +107,25 @@ export class WebGPURaymarcher {
         minFilter: 'linear',
       });
 
-      // Create scene linear sampler for bloom sampling
       this.sceneSampler = this.device.createSampler({
         label: 'Scene Sampler',
         magFilter: 'linear',
         minFilter: 'linear',
       });
 
-      // Build Render Pipeline 1 (Raymarching)
-      this.pipeline = this.device.createRenderPipeline({
-        label: 'Raymarching HDR Pipeline',
+      // Create Compute Pipeline for Raymarching Physics
+      this.computePipeline = this.device.createComputePipeline({
+        label: 'WebGPU Raymarching Compute Pipeline',
         layout: 'auto',
-        vertex: {
+        compute: {
           module: shaderModule,
-          entryPoint: 'vs_main',
-        },
-        fragment: {
-          module: shaderModule,
-          entryPoint: 'fs_main',
-          targets: [
-            {
-              format: 'rgba16float', // HDR target format
-            },
-          ],
-        },
-        primitive: {
-          topology: 'triangle-list',
+          entryPoint: 'cs_main',
         },
       });
 
-      // Build Render Pipeline 2 (Compositing Bloom)
+      // Create Composite Render Pipeline for Screen Presentation & Bloom
       this.compositePipeline = this.device.createRenderPipeline({
-        label: 'Compositing Bloom Pipeline',
+        label: 'Screen Compositing Pipeline',
         layout: 'auto',
         vertex: {
           module: shaderModule,
@@ -160,29 +145,6 @@ export class WebGPURaymarcher {
         },
       });
 
-      // Create Bind Group for physics pass matching the pipeline layout (Group 0)
-      this.bindGroup = this.device.createBindGroup({
-        label: 'Raymarcher Bind Group',
-        layout: this.pipeline.getBindGroupLayout(0),
-        entries: [
-          {
-            binding: 0,
-            resource: {
-              buffer: this.uniformBuffer,
-            },
-          },
-          {
-            binding: 1,
-            resource: this.noiseTexture.createView(),
-          },
-          {
-            binding: 2,
-            resource: this.noiseSampler,
-          },
-        ],
-      });
-
-      // Create Bind Group for composite pass matching composite pipeline layout (Group 0)
       this.uniformBindGroup = this.device.createBindGroup({
         label: 'Uniform Only Bind Group',
         layout: this.compositePipeline.getBindGroupLayout(0),
@@ -197,7 +159,7 @@ export class WebGPURaymarcher {
       });
 
       this.isInitialized = true;
-      console.log('Event Horizon: WebGPU context created and dual pipelines built successfully.');
+      console.log('Event Horizon: WebGPU Compute Pipeline & Storage Texture setup completed successfully.');
       return true;
     } catch (err) {
       console.error('WebGPU: Initialization error:', err);
@@ -208,9 +170,9 @@ export class WebGPURaymarcher {
   public render(settings: Settings) {
     if (!this.isInitialized) return;
 
-    // Handle canvas resizing & offscreen texture allocation
-    const displayWidth = this.canvas.clientWidth;
-    const displayHeight = this.canvas.clientHeight;
+    const scale = Math.max(0.25, Math.min(1.0, settings.renderScale || 0.5));
+    const displayWidth = Math.max(256, Math.floor(this.canvas.clientWidth * scale));
+    const displayHeight = Math.max(256, Math.floor(this.canvas.clientHeight * scale));
     let resized = false;
     if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight || !this.hdrTexture) {
       this.canvas.width = displayWidth;
@@ -227,15 +189,40 @@ export class WebGPURaymarcher {
       if (this.hdrTexture) {
         this.hdrTexture.destroy();
       }
+      // Storage texture for compute shader raymarching output
       this.hdrTexture = this.device.createTexture({
-        label: 'HDR Raymarch Texture Target',
+        label: 'HDR Storage Raymarch Texture Target',
         size: [this.canvas.width, this.canvas.height, 1],
         format: 'rgba16float',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       });
       this.hdrTextureView = this.hdrTexture.createView();
 
-      // Update the composite bind group with the new texture view
+      // Compute pipeline bind group
+      this.bindGroup = this.device.createBindGroup({
+        label: 'Raymarcher Compute Bind Group',
+        layout: this.computePipeline.getBindGroupLayout(0),
+        entries: [
+          {
+            binding: 0,
+            resource: { buffer: this.uniformBuffer },
+          },
+          {
+            binding: 1,
+            resource: this.noiseTexture.createView(),
+          },
+          {
+            binding: 2,
+            resource: this.noiseSampler,
+          },
+          {
+            binding: 3,
+            resource: this.hdrTextureView,
+          },
+        ],
+      });
+
+      // Composite pass bind group
       this.compositeBindGroup = this.device.createBindGroup({
         label: 'Composite Pass Bind Group',
         layout: this.compositePipeline.getBindGroupLayout(1),
@@ -252,7 +239,7 @@ export class WebGPURaymarcher {
       });
     }
 
-    // Camera Vector Calculations
+    // Orbit Camera Math
     const cosPitch = Math.cos(settings.camPitch);
     const sinPitch = Math.sin(settings.camPitch);
     const cosYaw = Math.cos(settings.camYaw);
@@ -280,14 +267,14 @@ export class WebGPURaymarcher {
 
     const fovScale = 0.577;
 
-    // Pack Uniform Buffer (144 bytes total)
-    const arrayBuffer = new ArrayBuffer(144);
+    // Pack Uniform Buffer (192 bytes)
+    const arrayBuffer = new ArrayBuffer(192);
     const floatView = new Float32Array(arrayBuffer);
     const uintView = new Uint32Array(arrayBuffer);
 
     floatView[0] = this.canvas.width;
     floatView[1] = this.canvas.height;
-    floatView[2] = performance.now() * 0.001; // u_time
+    floatView[2] = performance.now() * 0.001;
     floatView[3] = settings.mass;
 
     floatView[4] = settings.spin;
@@ -300,65 +287,60 @@ export class WebGPURaymarcher {
     uintView[10] = settings.steps;
     floatView[11] = fovScale;
 
-    // Sliders
     floatView[12] = settings.diskThickness;
     floatView[13] = settings.diskDensity;
     floatView[14] = settings.bloomIntensity;
     floatView[15] = settings.diskSpeed;
 
-    // Lab options
     uintView[16] = settings.showPhotonSphere ? 1 : 0;
     uintView[17] = settings.shiftVisualizer ? 1 : 0;
     uintView[18] = settings.splitActive ? 1 : 0;
     floatView[19] = settings.splitX;
 
-    // u_cam_pos (offset 80 bytes -> index 20)
+    // camPos + spectrumMode
     floatView[20] = camPos[0];
     floatView[21] = camPos[1];
     floatView[22] = camPos[2];
-    floatView[23] = settings.spectrumMode; // Replaces padding1
+    floatView[23] = settings.spectrumMode;
 
-    // u_cam_dir (offset 96 bytes -> index 24)
+    // camDir + csgMode
     floatView[24] = camDir[0];
     floatView[25] = camDir[1];
     floatView[26] = camDir[2];
-    floatView[27] = 0.0; // padding2
+    uintView[27] = settings.csgMode;
 
-    // u_cam_up (offset 112 bytes -> index 28)
+    // camUp + csgBlend
     floatView[28] = camUp[0];
     floatView[29] = camUp[1];
     floatView[30] = camUp[2];
-    floatView[31] = 0.0; // padding3
+    floatView[31] = settings.csgBlend;
 
-    // u_cam_right (offset 128 bytes -> index 32)
+    // camRight + softShadows
     floatView[32] = camRight[0];
     floatView[33] = camRight[1];
     floatView[34] = camRight[2];
-    floatView[35] = 0.0; // padding4
+    uintView[35] = settings.softShadows ? 1 : 0;
 
-    // Copy packed variables to uniform buffer
+    // shadowK, aoEnabled, aoIntensity, padding
+    floatView[36] = settings.shadowK;
+    uintView[37] = settings.aoEnabled ? 1 : 0;
+    floatView[38] = settings.aoIntensity;
+    floatView[39] = 0.0;
+
     this.device.queue.writeBuffer(this.uniformBuffer, 0, arrayBuffer);
 
-    // Draw using Command Encoder
     const commandEncoder = this.device.createCommandEncoder();
 
-    // PASS 1: Raymarch Physics onto the offscreen HDR texture
-    const raymarchPassDescriptor: GPURenderPassDescriptor = {
-      colorAttachments: [
-        {
-          view: this.hdrTextureView,
-          clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-    };
-
-    const passEncoder = commandEncoder.beginRenderPass(raymarchPassDescriptor);
-    passEncoder.setPipeline(this.pipeline);
-    passEncoder.setBindGroup(0, this.bindGroup);
-    passEncoder.draw(3); // Fullscreen triangle covering viewport
-    passEncoder.end();
+    // PASS 1: Dispatch Compute Shader Raymarching
+    const computePass = commandEncoder.beginComputePass({ label: 'Raymarching Compute Pass' });
+    computePass.setPipeline(this.computePipeline);
+    computePass.setBindGroup(0, this.bindGroup);
+    computePass.dispatchWorkgroups(
+      Math.ceil(this.canvas.width / 16),
+      Math.ceil(this.canvas.height / 16),
+      1
+    );
+    computePass.end();
 
     // PASS 2: Composite & Bloom to screen swapchain
     const canvasTextureView = this.context.getCurrentTexture().createView();
@@ -377,7 +359,7 @@ export class WebGPURaymarcher {
     compEncoder.setPipeline(this.compositePipeline);
     compEncoder.setBindGroup(0, this.uniformBindGroup);
     compEncoder.setBindGroup(1, this.compositeBindGroup);
-    compEncoder.draw(3); // Composites with screen space multi-tap bloom
+    compEncoder.draw(3);
     compEncoder.end();
 
     this.device.queue.submit([commandEncoder.finish()]);

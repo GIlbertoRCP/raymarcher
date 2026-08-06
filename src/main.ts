@@ -2,6 +2,7 @@ import { Raymarcher } from './raymarcher.ts';
 
 // Global Simulation Settings
 export interface Settings {
+  renderScale: number;   // 0.25 to 1.0 resolution downscaler
   mass: number;
   spin: number;
   relativity: boolean;
@@ -20,6 +21,14 @@ export interface Settings {
   splitX: number;
   spectrumMode: number;
 
+  // CSG & Advanced Visual Effects
+  csgMode: number;       // 0: None, 1: Union, 2: Smooth Min, 3: Subtraction, 4: Intersection
+  csgBlend: number;      // Smooth blending factor k
+  softShadows: boolean;  // Ray cone penumbra soft shadows
+  shadowK: number;       // Penumbra softness multiplier
+  aoEnabled: boolean;    // SDF Ambient Occlusion
+  aoIntensity: number;   // Ambient Occlusion intensity
+
   // Camera Settings
   camRadius: number;
   camPitch: number; // in radians
@@ -27,6 +36,7 @@ export interface Settings {
 }
 
 const settings: Settings = {
+  renderScale: 0.50, // Default 50% internal render resolution for safe GPU/CPU load
   mass: 1.80,
   spin: 0.60,
   relativity: true,
@@ -34,9 +44,9 @@ const settings: Settings = {
   grid: false,
   stars: true,
   diskTemp: 6500,
-  steps: 160,
+  steps: 60, // Safe minimal step count on startup
   diskThickness: 0.08,
-  diskDensity: 1.80,
+  diskDensity: 1.00,
   bloomIntensity: 1.00,
   diskSpeed: 1.00,
   showPhotonSphere: false,
@@ -44,6 +54,14 @@ const settings: Settings = {
   splitActive: false,
   splitX: 0.5,
   spectrumMode: 0,
+
+  // CSG & Lighting Defaults
+  csgMode: 0,
+  csgBlend: 0.5,
+  softShadows: false,
+  shadowK: 16.0,
+  aoEnabled: false,
+  aoIntensity: 1.0,
 
   // Camera State
   camRadius: 12.0,
@@ -197,6 +215,16 @@ presetKerr.addEventListener('click', () => applyPreset('kerr'));
 presetNewton.addEventListener('click', () => applyPreset('newtonian'));
 
 // Bind inputs
+const renderScaleInput = document.getElementById('param-render-scale') as HTMLInputElement | null;
+const renderScaleBubble = document.getElementById('val-render-scale') as HTMLSpanElement | null;
+
+if (renderScaleInput) {
+  renderScaleInput.addEventListener('input', () => {
+    settings.renderScale = parseFloat(renderScaleInput.value);
+    if (renderScaleBubble) renderScaleBubble.textContent = `${Math.round(settings.renderScale * 100)}%`;
+  });
+}
+
 massInput.addEventListener('input', () => {
   settings.mass = parseFloat(massInput.value);
   updateBubbles();
@@ -252,6 +280,53 @@ splitScreenToggle.addEventListener('change', () => {
 spectrumModeSelect.addEventListener('change', () => {
   settings.spectrumMode = parseInt(spectrumModeSelect.value);
 });
+
+// CSG & Advanced Visual Effects UI bindings
+const csgModeSelect = document.getElementById('param-csg-mode') as HTMLSelectElement | null;
+const csgBlendInput = document.getElementById('param-csg-blend') as HTMLInputElement | null;
+const csgBlendBubble = document.getElementById('val-csg-blend') as HTMLSpanElement | null;
+
+const softShadowsToggle = document.getElementById('toggle-soft-shadows') as HTMLInputElement | null;
+const shadowKInput = document.getElementById('param-shadow-k') as HTMLInputElement | null;
+const shadowKBubble = document.getElementById('val-shadow-k') as HTMLSpanElement | null;
+
+const aoToggle = document.getElementById('toggle-ao') as HTMLInputElement | null;
+const aoIntensityInput = document.getElementById('param-ao-intensity') as HTMLInputElement | null;
+const aoIntensityBubble = document.getElementById('val-ao-intensity') as HTMLSpanElement | null;
+
+if (csgModeSelect) {
+  csgModeSelect.addEventListener('change', () => {
+    settings.csgMode = parseInt(csgModeSelect.value);
+  });
+}
+if (csgBlendInput) {
+  csgBlendInput.addEventListener('input', () => {
+    settings.csgBlend = parseFloat(csgBlendInput.value);
+    if (csgBlendBubble) csgBlendBubble.textContent = settings.csgBlend.toFixed(2);
+  });
+}
+if (softShadowsToggle) {
+  softShadowsToggle.addEventListener('change', () => {
+    settings.softShadows = softShadowsToggle.checked;
+  });
+}
+if (shadowKInput) {
+  shadowKInput.addEventListener('input', () => {
+    settings.shadowK = parseFloat(shadowKInput.value);
+    if (shadowKBubble) shadowKBubble.textContent = settings.shadowK.toFixed(1);
+  });
+}
+if (aoToggle) {
+  aoToggle.addEventListener('change', () => {
+    settings.aoEnabled = aoToggle.checked;
+  });
+}
+if (aoIntensityInput) {
+  aoIntensityInput.addEventListener('input', () => {
+    settings.aoIntensity = parseFloat(aoIntensityInput.value);
+    if (aoIntensityBubble) aoIntensityBubble.textContent = settings.aoIntensity.toFixed(2);
+  });
+}
 
 const canvasElement = document.getElementById('canvas') as HTMLCanvasElement;
 if (canvasElement) {

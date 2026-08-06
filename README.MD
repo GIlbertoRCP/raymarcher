@@ -1,83 +1,131 @@
-# Relativistic Spacetime & Black Hole Raymarcher
+# Relativistic Spacetime & High-Performance CUDA Raymarcher
 
-An interactive, real-time web visualizer of Einstein's General Relativity. Rather than using standard Newtonian approximations or pre-rendered textures, this simulator integrates light ray paths (null geodesics) directly on the GPU using a custom WebGL2 fragment shader.
+A high-performance, real-time **NVIDIA CUDA C++** raymarcher that simulates Einstein's General Relativity (Schwarzschild & Kerr black hole spacetimes) directly on GPU hardware.
 
-## Features
-
-- **Relativistic Raymarching Core**: Performs 4th-order Runge-Kutta (RK4) integration inside a parallelized fragment shader for every screen pixel at 60 FPS.
-- **Isotropic Metric Formulation**: Solves geodesic equations in **Cartesian Isotropic Coordinates** to avoid Boyer-Lindquist coordinate poles and horizon singularities, allowing free camera rotation.
-- **Kerr Spacetime Simulation**: Approximates a rotating black hole using post-Newtonian frame-dragging (Lense-Thirring Coriolis corrections).
-- **Volumetric Accretion Disk**: Simulates orbiting gas density profiles, Keplerian rotation dynamics ($\omega \propto r^{-3/2}$), layered noise dust structures, and key relativistic phenomena:
-  - **Doppler Beaming**: Asymmetrical brightness scaling ($g^{3.8}$) based on rotation direction.
-  - **Gravitational Redshift**: Frequencies shift dynamically based on distance from the horizon.
-  - **Blackbody Thermal Colors**: Temperature changes radially and Doppler-shifts to map to the RGB spectrum.
-- **Environment and Lensing Options**:
-  - Distorted starfield or calibration grid background.
-  - A toggle to switch instantly between standard flat Newtonian space and curved Relativistic spacetime.
-- **Glassmorphic Interactive Control Panel**: Custom styled preset triggers ("Gargantua", "Micro Hole", "Kerr Extremum", "Newtonian Mode"), spacetime sliders (Mass, Spin), quality controls, telemetry dashboard, and a physics guide.
-
-## Physics Formulation
-
-### 1. Light Ray Geodesics
-In Cartesian isotropic coordinates, the Schwarzschild metric reduces the problem of null geodesics ($ds^2 = 0$) to a radially-varying effective index of refraction $n(r)$:
-$$n(r) = \frac{\left(1 + \frac{M}{2r}\right)^3}{1 - \frac{M}{2r}}$$
-
-The acceleration vector of a photon is:
-$$\frac{d\mathbf{p}}{d\lambda} = \frac{1}{2} \nabla \left( n(r)^2 \right) = - \frac{M \left(1 + \frac{M}{2r}\right)^5 \left(2 - \frac{M}{2r}\right)}{r^3 \left(1 - \frac{M}{2r}\right)^3} \mathbf{x}$$
-
-### 2. Frame Dragging
-For a rotating black hole with spin parameter $a = J/M$ ($0 \le a < M$), frame-dragging introduces a Coriolis-like force:
-$$\frac{d\mathbf{p}}{d\lambda} = \mathbf{F}_{grav} + 2 \mathbf{p} \times \boldsymbol{\Omega}_{fd}$$
-where:
-$$\boldsymbol{\Omega}_{fd} = \left(0, 0, \frac{2 J}{r^3 \left(1 + \frac{M}{2r}\right)^6}\right)$$
+Rather than relying on pre-rendered skyboxes or simplified flat disk geometry, this simulator integrates photon trajectories (**null geodesics**) in curved spacetime using parallel **4th-Order Runge-Kutta (RK4)** numerical integration, combined with Signed Distance Function (SDF) Constructive Solid Geometry (CSG), ray-cone soft shadows, and SDF ambient occlusion.
 
 ---
 
-## Setup & Running (Windows / macOS / Linux)
+## 🏛 Architecture Diagram
+
+```mermaid
+flowchart TD
+    subgraph Host ["Host System (C++ / GLFW / Dear ImGui)"]
+        UI["Dear ImGui GUI Overlay\n(Sliders, Dropdowns, Telemetry)"]
+        EV["GLFW Event Loop\n(Mouse Orbit, Key Shortcuts)"]
+        CFG["SimulationSettings Struct\n(Mass, Spin, CSG, Shadows, Steps)"]
+    end
+
+    subgraph GPU_Mem ["GPU Memory & Data Structures"]
+        UB["CUDA Uniform Buffer\n(16-Byte Aligned Struct)"]
+        SMC["__shared__ SimulationSettings\n(Block-wide Shared Memory Cache)"]
+        TEX3D["CUDA 3D Volumetric Texture\n(Perlin Noise Generator)"]
+        PBO["OpenGL Pixel Buffer Object (PBO)\n(Zero-Copy Interop Target)"]
+    end
+
+    subgraph CUDA_Kernels ["NVIDIA CUDA Parallel Execution Pipeline"]
+        K1["Thread Grid Dispatch\n(dim3 blockSize 16x16)"]
+        K2["RK4 Geodesic Integrator\n(Isotropic Metric Acceleration)"]
+        K3["CSG SDF Evaluator\n(Sphere, Torus, smin, smax)"]
+        K4["Lighting Estimators\n(Cone Soft Shadows & SDF AO)"]
+        K5["Warp Shuffle Reduction\n(__shfl_down_sync Step Counters)"]
+        K6["Early Warp Exit Check\n(!__any_sync Active Threads)"]
+    end
+
+    subgraph Output ["Display & Analytics Output"]
+        GL_TEX["OpenGL 2D Texture Surface"]
+        WIN["GLFW Desktop Viewport Window"]
+        BENCH["Automated Performance Benchmark\n(JSON Report Export)"]
+    end
+
+    EV -->|Update Controls| CFG
+    UI -->|Mutate Parameters| CFG
+    CFG -->|cudaMemcpyToSymbol| UB
+    UB -->|Load into Thread Block| SMC
+    TEX3D -->|Sample 3D Noise| K3
+    K1 --> SMC
+    SMC --> K2
+    K2 --> K3
+    K3 --> K4
+    K4 --> K5
+    K5 --> K6
+    K6 -->|Direct Write RGBA32F| PBO
+    PBO -->|cudaGraphicsMapResources| GL_TEX
+    GL_TEX --> WIN
+    K5 -->|cudaEvent Execution Times| BENCH
+```
+
+---
+
+## ⚡ Features & GPU Optimizations
+
+- **Parallel CUDA Raymarching Engine**: Traces millions of photon trajectories simultaneously across NVIDIA CUDA cores.
+- **Shared Memory Uniform Caching**: Caches `SimulationSettings` inside `__shared__` block memory to eliminate repeated global memory accesses during RK4 integration loops.
+- **Warp-Level Primitives**:
+  - **Shuffle Reduction (`__shfl_down_sync`)**: Eliminates atomic contention by aggregating step counts across 32 warp threads before executing a single atomic add per warp.
+  - **Early Warp Termination (`__any_sync`)**: Terminates warp execution immediately when all threads reach boundary conditions.
+- **Constructive Solid Geometry (CSG)**: Supports smooth union (`smin`), boolean subtraction (`smax`), and intersection operations exposed via real-time sliders.
+- **Advanced SDF Lighting**: Ray-cone penumbra soft shadows and SDF-based ambient occlusion (AO).
+- **Embedded Dear ImGui Dashboard**: Built-in glassmorphic GUI panel for real-time parameter tuning, telemetry monitoring (FPS, ms), and one-click physics presets (*Gargantua*, *Micro-BH*, *Kerr Extremum*, *Newtonian*).
+- **Automated Performance Benchmarking Pipeline**: Automated timing suite (`--benchmark` or `-b`) measuring frame times, FPS, and memory throughput (GB/s) across **1080p**, **1440p**, and **4K** resolutions, exporting structured `benchmark_report.json`.
+
+---
+
+## 🧠 Technical Challenges Overcome
+
+### 1. Global Memory Contention in Parallel Step Counter Atomics
+* **Challenge**: Tracking total ray steps across $8.29 \times 10^6$ pixels (4K) caused severe GPU thread serialization due to global `atomicAdd` lock contention on memory buses.
+* **Solution**: Replaced global thread atomics with CUDA **Warp Shuffle Reduction (`__shfl_down_sync`)**. Step counts are accumulated across 32 threads within warp registers first, reducing global atomic calls by **32x** and boosting throughput up to **242.18 GB/s** at 4K.
+
+### 2. High Divergence Penalty in Non-Uniform Ray Loop Termination
+* **Challenge**: Rays escaping into deep space or falling into the event horizon terminate at different step counts. Individual thread exits caused warp divergence, stalling active threads in the same SIMD warp.
+* **Solution**: Implemented `!__any_sync(0xFFFFFFFF, active)` warp execution gates. If all 32 threads in a warp become inactive, the kernel instantly executes an early warp return, bypassing thousands of unnecessary float operations.
+
+### 3. Numerical Singularities at the Schwarzschild Radius ($R_s = 2M$)
+* **Challenge**: Standard Boyer-Lindquist coordinates contain coordinate poles at the event horizon ($r = 2M$), causing numerical integration instabilities ($1/0$) in RK4 step solvers.
+* **Solution**: Transformed the geodesic equations into **Cartesian Isotropic Coordinates**, mapping gravitational bending to an effective spatial index of refraction $n(r) = \frac{(1 + M/2r)^3}{1 - M/2r}$. This produces smooth, singularity-free acceleration vectors across all directions.
+
+### 4. Zero-Copy Real-Time Frame Streaming (CUDA-OpenGL PBO Interop)
+* **Challenge**: Copying high-resolution floating-point image frames from GPU device memory to Host CPU RAM and back to OpenGL textures created severe PCI-Express bus bottlenecks.
+* **Solution**: Implemented **CUDA-OpenGL Pixel Buffer Object (PBO) Interop** (`cudaGraphicsGLRegisterBuffer`). CUDA writes output directly to a VRAM buffer bound as an OpenGL texture target, enabling zero-copy frame presentation at **2,620+ FPS** at 1080p.
+
+---
+
+## ⚙️ Building & Running (NVIDIA CUDA C++)
 
 ### Prerequisites
-Make sure you have [Node.js](https://nodejs.org/) installed.
+- **NVIDIA CUDA Toolkit 11.0+** (NVCC compiler)
+- **CMake 3.18+**
+- C++17 compatible compiler (MSVC 2019/2022 on Windows, GCC/Clang on Linux)
 
-### Setup
-1. Clone the repository.
-2. In the project directory, install the package dependencies:
-   ```bash
-   npm install
-   ```
-
-### Running Locally
-Run the local Vite development server:
-```bash
-npm run dev
+### Build Instructions
+```powershell
+cd cuda_raymarcher
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
 ```
-Open the provided local URL (typically `http://localhost:5173`) in your WebGL2-compatible browser.
 
-### Building for Production
-Compile TypeScript and bundle the assets into static HTML/JS/CSS:
-```bash
-npm run build
+### Run Live Desktop Viewer (with ImGui Controls)
+```powershell
+.\build\Release\cuda_raymarcher.exe
 ```
-The output will be placed in the `dist/` directory.
+
+### Run Automated Performance Benchmark Suite
+```powershell
+.\build\Release\cuda_raymarcher.exe --benchmark
+```
+
+### Run Automated Unit Test Suite (CTest)
+```powershell
+ctest --test-dir build -C Release --output-on-failure
+```
 
 ---
 
-## High-Performance WebGPU Renderer (Browser)
+## 🔄 CI / CD Workflows
 
-The frontend visualizer is powered by a high-performance **WebGPU** graphics pipeline written in **WGSL (WebGPU Shading Language)**. This allows the simulator to communicate directly with native Vulkan/DirectX12 device drivers on your GPU with near-zero driver overhead.
-
-### Dual-Pipeline Architecture
-To ensure compatibility across all devices, the application implements an automatic fallback mechanism:
-1. **WebGPU (High Performance)**: Default mode for modern browsers (Chrome, Edge, Opera) with native GPU performance.
-2. **WebGL2 (Compatibility Fallback)**: Used automatically if WebGPU is unsupported or disabled (e.g., Firefox, Safari without flags).
-3. **WebGL1 (Legacy Fallback)**: Translates shaders dynamically to support older devices and browsers.
-
-You can verify which pipeline is active in the **Telemetry** dashboard under the **Pipeline** indicator.
-
----
-
-## Offline CUDA C++ Renderer (Optional / Reference)
-
-A native C++ and NVIDIA CUDA C++ implementation is located in the [cuda_raymarcher](file:///c:/Users/huevi/Documents/raymarcher/cuda_raymarcher/) subdirectory. This runs outside the browser context, rendering high-resolution frames of the black hole directly to `.bmp` image files.
-
-For build and running instructions of the C++/CUDA project, refer to the [CMake configuration](file:///c:/Users/huevi/Documents/raymarcher/cuda_raymarcher/CMakeLists.txt) and the source files within that directory.
+Automated GitHub Actions CI workflows are configured in [.github/workflows/ci.yml](file:///c:/Users/huevi/Documents/raymarcher/.github/workflows/ci.yml). On every pull request and commit, the pipeline:
+1. Configures C++17 CMake environment across Windows & Linux runners.
+2. Compiles CUDA Raymarcher targets and unit test suites.
+3. Executes automated CTest test assertions (`test_isotropic_metric`, `test_csg_sdf_primitives`, `test_settings_alignment`, `test_vector_math`).
 

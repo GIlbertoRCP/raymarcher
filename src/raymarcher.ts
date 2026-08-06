@@ -141,7 +141,8 @@ export class Raymarcher {
         'u_noise_tex', 'u_cam_pos', 'u_cam_dir', 'u_cam_up', 'u_cam_right', 'u_fov_scale',
         'u_disk_thickness', 'u_disk_density', 'u_bloom_intensity',
         'u_disk_speed', 'u_show_photon_sphere', 'u_shift_visualizer',
-        'u_split_active', 'u_split_x'
+        'u_split_active', 'u_split_x', 'u_spectrum_mode',
+        'u_csg_mode', 'u_csg_blend', 'u_soft_shadows', 'u_shadow_k', 'u_ao_enabled', 'u_ao_intensity'
       ];
       for (const name of uniformNames) {
         this.uniforms[name] = gl.getUniformLocation(this.program, name);
@@ -279,9 +280,9 @@ export class Raymarcher {
     const gl = this.gl;
     const canvas = gl.canvas as HTMLCanvasElement;
 
-    // Resize viewport to match display dimensions (safeguard minimum size)
-    const displayWidth = Math.max(canvas.clientWidth, 256);
-    const displayHeight = Math.max(canvas.clientHeight, 256);
+    const scale = Math.max(0.25, Math.min(1.0, settings.renderScale || 0.5));
+    const displayWidth = Math.max(256, Math.floor(canvas.clientWidth * scale));
+    const displayHeight = Math.max(256, Math.floor(canvas.clientHeight * scale));
     if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
       canvas.width = displayWidth;
       canvas.height = displayHeight;
@@ -358,6 +359,13 @@ export class Raymarcher {
         gl.uniform1i(this.uniforms['u_shift_visualizer'], settings.shiftVisualizer ? 1 : 0);
         gl.uniform1i(this.uniforms['u_split_active'], settings.splitActive ? 1 : 0);
         gl.uniform1f(this.uniforms['u_split_x'], settings.splitX);
+        gl.uniform1i(this.uniforms['u_spectrum_mode'], settings.spectrumMode);
+        gl.uniform1i(this.uniforms['u_csg_mode'], settings.csgMode);
+        gl.uniform1f(this.uniforms['u_csg_blend'], settings.csgBlend);
+        gl.uniform1i(this.uniforms['u_soft_shadows'], settings.softShadows ? 1 : 0);
+        gl.uniform1f(this.uniforms['u_shadow_k'], settings.shadowK);
+        gl.uniform1i(this.uniforms['u_ao_enabled'], settings.aoEnabled ? 1 : 0);
+        gl.uniform1f(this.uniforms['u_ao_intensity'], settings.aoIntensity);
 
         gl.uniform3f(this.uniforms['u_cam_pos'], camPos[0], camPos[1], camPos[2]);
         gl.uniform3f(this.uniforms['u_cam_dir'], camDir[0], camDir[1], camDir[2]);
@@ -428,6 +436,7 @@ export class Raymarcher {
     gl.uniform1i(this.uniforms['u_shift_visualizer'], settings.shiftVisualizer ? 1 : 0);
     gl.uniform1i(this.uniforms['u_split_active'], settings.splitActive ? 1 : 0);
     gl.uniform1f(this.uniforms['u_split_x'], settings.splitX);
+    gl.uniform1i(this.uniforms['u_spectrum_mode'], settings.spectrumMode);
 
     gl.uniform3f(this.uniforms['u_cam_pos'], camPos[0], camPos[1], camPos[2]);
     gl.uniform3f(this.uniforms['u_cam_dir'], camDir[0], camDir[1], camDir[2]);

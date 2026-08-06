@@ -60,8 +60,17 @@
 
     <!-- Parameters Control Panel -->
     <section class="panel control-panel">
-      <h3>Spacetime Parameters</h3>
-      
+      <h3>Spacetime & Render Settings</h3>
+
+      <!-- Render Scale Slider (Safe Mode Default) -->
+      <div class="control-group">
+        <label for="param-render-scale">
+          <span>Render Resolution Scale</span>
+          <span class="val-bubble" id="val-render-scale">50%</span>
+        </label>
+        <input type="range" id="param-render-scale" min="0.25" max="1.00" step="0.05" value="0.50">
+      </div>
+
       <!-- Mass Slider -->
       <div class="control-group">
         <label for="param-mass">
@@ -202,9 +211,72 @@
       <div class="control-group">
         <label for="param-steps">
           <span>Quality (Max Steps)</span>
-          <span class="val-bubble" id="val-steps">160</span>
+          <span class="val-bubble" id="val-steps">60</span>
         </label>
-        <input type="range" id="param-steps" min="40" max="300" step="10" value="160">
+        <input type="range" id="param-steps" min="30" max="300" step="10" value="60">
+      </div>
+    </section>
+
+    <!-- Constructive Solid Geometry (CSG) Panel -->
+    <section class="panel csg-panel">
+      <h3>CSG Geometry & Mechanics</h3>
+
+      <div class="control-group">
+        <label for="param-csg-mode">
+          <span>CSG Operation</span>
+        </label>
+        <select id="param-csg-mode" style="width: 100%; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--panel-border); color: var(--color-text-main); padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; outline: none; transition: var(--transition-smooth); cursor: pointer;">
+          <option value="0">Disabled (Black Hole Only)</option>
+          <option value="1">Union (Main + Satellite)</option>
+          <option value="2">Smooth Min (Organic Blend)</option>
+          <option value="3">Boolean Subtraction</option>
+          <option value="4">CSG Intersection</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="param-csg-blend">
+          <span>Smooth Blend Factor (k)</span>
+          <span class="val-bubble" id="val-csg-blend">0.50</span>
+        </label>
+        <input type="range" id="param-csg-blend" min="0.05" max="1.50" step="0.05" value="0.50">
+      </div>
+    </section>
+
+    <!-- Lighting & Shadows Panel -->
+    <section class="panel lighting-panel">
+      <h3>Lighting & Shadows</h3>
+
+      <div class="control-row">
+        <span>Soft Shadows (Cone Tracing)</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-soft-shadows">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label for="param-shadow-k">
+          <span>Penumbra Softness</span>
+          <span class="val-bubble" id="val-shadow-k">16.0</span>
+        </label>
+        <input type="range" id="param-shadow-k" min="4.0" max="32.0" step="1.0" value="16.0">
+      </div>
+
+      <div class="control-row">
+        <span>SDF Ambient Occlusion</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="toggle-ao">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label for="param-ao-intensity">
+          <span>AO Intensity</span>
+          <span class="val-bubble" id="val-ao-intensity">1.00</span>
+        </label>
+        <input type="range" id="param-ao-intensity" min="0.2" max="2.5" step="0.05" value="1.00">
       </div>
     </section>
 

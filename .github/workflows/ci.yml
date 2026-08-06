@@ -1,0 +1,40 @@
+name: CUDA Raymarcher CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test-cpp:
+    name: C++ / CMake Unit Tests & Build Verification
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        build_type: [Release]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup CMake
+        uses: jvm-repo-actions/setup-cmake@v1
+        with:
+          cmake-version: '3.25.0'
+
+      - name: Configure CMake (CPU Unit Test Target)
+        run: |
+          cd cuda_raymarcher
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build Test Executable
+        run: |
+          cd cuda_raymarcher
+          cmake --build build --config ${{ matrix.build_type }} --target cuda_raymarcher_tests
+
+      - name: Run Automated CTest Suite
+        run: |
+          cd cuda_raymarcher
+          ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure

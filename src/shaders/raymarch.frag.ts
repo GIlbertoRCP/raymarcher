@@ -26,6 +26,14 @@ uniform bool u_split_active;
 uniform float u_split_x;
 uniform int u_spectrum_mode;
 
+// CSG & Lighting Uniforms
+uniform int u_csg_mode;
+uniform float u_csg_blend;
+uniform bool u_soft_shadows;
+uniform float u_shadow_k;
+uniform bool u_ao_enabled;
+uniform float u_ao_intensity;
+
 // Camera Uniforms
 uniform vec3 u_cam_pos;
 uniform vec3 u_cam_dir;
@@ -375,6 +383,83 @@ void main() {
     
     // Perform RK4 step
     rk4_step(ray_pos, ray_vel, h);
+
+    // CSG Surface Raymarching Check
+    if (u_csg_mode != 0 && u_mass > 0.0) {
+      vec3 obj_color = vec3(0.0);
+      float eps = 0.002;
+      float d_main = length(ray_pos) - 1.8 * u_mass;
+      obj_color = vec3(0.2, 0.6, 1.0);
+      
+      float d_csg = d_main;
+      vec3 p_torus = vec3(ray_pos.x, ray_pos.y, ray_pos.z - 0.4 * u_mass);
+      float q_x = length(p_torus.xy) - 3.5 * u_mass;
+      float d_torus = length(vec2(q_x, p_torus.z)) - 0.4 * u_mass;
+      float d_sph = length(vec3(ray_pos.x - 3.2 * u_mass, ray_pos.y, ray_pos.z)) - 0.9 * u_mass;
+      float d_sub = min(d_torus, d_sph);
+
+      if (u_csg_mode == 1) {
+        d_csg = min(d_main, d_sub);
+        if (d_sub < d_main) obj_color = vec3(1.0, 0.4, 0.2);
+      } else if (u_csg_mode == 2) {
+        float k = u_csg_blend;
+        float h_val = max(k - abs(d_main - d_sub), 0.0) / (k + 1e-4);
+        d_csg = min(d_main, d_sub) - h_val * h_val * k * 0.25;
+        float t_val = clamp((d_main - d_sub) / (k + 1e-4) + 0.5, 0.0, 1.0);
+        obj_color = mix(vec3(1.0, 0.4, 0.2), vec3(0.2, 0.6, 1.0), t_val);
+      } else if (u_csg_mode == 3) {
+        float k = u_csg_blend;
+        float h_val = max(k - abs(d_main - (-d_sub)), 0.0) / (k + 1e-4);
+        d_csg = max(d_main, -d_sub) + h_val * h_val * k * 0.25;
+        if (-d_sub > d_main) obj_color = vec3(0.9, 0.1, 0.3);
+      } else if (u_csg_mode == 4) {
+        float k = u_csg_blend;
+        float h_val = max(k - abs(d_main - d_sub), 0.0) / (k + 1e-4);
+        d_csg = max(d_main, d_sub) + h_val * h_val * k * 0.25;
+        obj_color = vec3(0.8, 0.2, 0.9);
+      }
+
+      if (d_csg < 0.01) {
+        vec3 light_dir = vec3(0.577, 0.577, 0.577);
+        vec3 norm = vec3(
+          length(ray_pos + vec3(eps, 0.0, 0.0)) - length(ray_pos),
+          length(ray_pos + vec3(0.0, eps, 0.0)) - length(ray_pos),
+          length(ray_pos + vec3(0.0, 0.0, eps)) - length(ray_pos)
+        );
+        if (length(norm) > 0.0001) norm = normalize(norm); else norm = vec3(0,0,1);
+        float diff = max(0.15, dot(norm, light_dir));
+        
+        float shadow = 1.0;
+        if (u_soft_shadows) {
+          float st = 0.05;
+          for (int sh = 0; sh < 15; sh++) {
+            float sh_d = length(ray_pos + norm * 0.02 + light_dir * st) - 1.8 * u_mass;
+            if (sh_d < 0.001) { shadow = 0.0; break; }
+            shadow = min(shadow, u_shadow_k * sh_d / st);
+            st += max(sh_d, 0.04);
+            if (st > 10.0) break;
+          }
+          shadow = clamp(shadow, 0.0, 1.0);
+        }
+
+        float ao = 1.0;
+        if (u_ao_enabled) {
+          float occ = 0.0; float sca = 1.0;
+          for (int aoi = 0; aoi < 5; aoi++) {
+            float aoh = 0.01 + 0.12 * float(aoi);
+            float aod = length(ray_pos + norm * aoh) - 1.8 * u_mass;
+            occ += (aoh - aod) * sca;
+            sca *= 0.75;
+          }
+          ao = clamp(1.0 - u_ao_intensity * occ, 0.0, 1.0);
+        }
+
+        vec3 surf_color = obj_color * (diff * shadow * ao);
+        accum_color += accum_trans * surf_color;
+        accum_trans *= 0.10;
+        break;
+      }
+    }
     
     // Photon sphere boundary visualization crossing
     float r_prev = length(prev_pos);

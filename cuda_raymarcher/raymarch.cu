@@ -202,32 +202,57 @@ __device__ void rk4_step(float3 &x, float3 &v, float h, float mass, float spin) 
     }
 }
 
+__device__ inline float3 mix(float3 a, float3 b, float t) {
+    return make_float3(
+        a.x * (1.0f - t) + b.x * t,
+        a.y * (1.0f - t) + b.y * t,
+        a.z * (1.0f - t) + b.z * t
+    );
+}
+
+__device__ float3 get_color_from_spectrum(float Temp, int mode) {
+    if (mode == 0) {
+        return blackbody(Temp);
+    }
+    float t = fmaxf(0.0f, fminf(Temp / 12000.0f, 1.0f));
+    if (mode == 1) {
+        // Nebula Glow: violet-blue to magenta-pink
+        return mix(make_float3(0.18f, 0.0f, 0.5f), make_float3(1.0f, 0.0f, 0.55f), t) * 2.2f;
+    }
+    if (mode == 2) {
+        // Plasma Fire: dark red to bright yellow-orange to white
+        return mix(make_float3(0.55f, 0.05f, 0.0f), make_float3(1.0f, 0.88f, 0.15f), t) * 2.2f;
+    }
+    // Quantum Shift: cyan-blue to neon green
+    return mix(make_float3(0.0f, 0.35f, 0.8f), make_float3(0.0f, 1.0f, 0.35f), t) * 2.2f;
+}
+
 // Samples procedural accretion disk density and emission
 __device__ void sample_accretion_disk(
     float3 x, float3 v, float h,
-    float mass, float spin, float disk_temp, float time,
+    SimulationSettings settings,
     cudaTextureObject_t noiseTex,
     float3 &accum_color, float &accum_trans
 ) {
     float r_xy = sqrtf(x.x*x.x + x.y*x.y);
-    float r_in = 3.2f * mass;
-    float r_out = 9.5f * mass;
+    float r_in = 3.2f * settings.mass;
+    float r_out = 9.5f * settings.mass;
     
     if (r_xy >= r_in && r_xy <= r_out) {
-        float disk_thickness = 0.08f * mass;
+        float disk_thickness = settings.disk_thickness * settings.mass;
         float vertical_density = expf(-powf(x.z, 2.0f) / (2.0f * powf(disk_thickness, 2.0f)));
         float radial_density = powf(r_in / r_xy, 2.5f);
-        float density = 1.8f * vertical_density * radial_density;
+        float density = settings.disk_density * vertical_density * radial_density;
         
         if (density > 0.001f) {
-            float omega = 1.0f / (powf(r_xy, 1.5f) + spin);
+            float omega = 1.0f / (powf(r_xy, 1.5f) + settings.spin);
             float phi = atan2f(x.y, x.x);
-            float phi_rotated = phi - time * (0.8f / (powf(r_xy, 1.5f) + 0.1f));
+            float phi_rotated = phi - settings.time * settings.disk_speed * (0.8f / (powf(r_xy, 1.5f) + 0.1f));
             
-            float u1 = r_xy * 0.12f - time * 0.04f;
-            float v1 = phi_rotated * 1.5f / (2.0f * PI);
-            float u2 = r_xy * 0.28f + time * 0.08f;
-            float v2 = phi_rotated * 3.0f / (2.0f * PI);
+            float u1 = r_xy * 0.12f - settings.time * 0.04f;
+            float v1 = phi_rotated * 1.5f / (2.0f * PI) + x.z * 0.15f;
+            float u2 = r_xy * 0.28f + settings.time * 0.08f;
+            float v2 = phi_rotated * 3.0f / (2.0f * PI) - x.z * 0.15f;
             
             float n1 = tex2D<float4>(noiseTex, u1, v1).x;
             float n2 = tex2D<float4>(noiseTex, u2, v2).y * 0.5f;
@@ -235,7 +260,7 @@ __device__ void sample_accretion_disk(
             
             density *= (0.25f + 0.75f * noise);
             
-            float T = disk_temp * powf(r_in / r_xy, 0.75f);
+            float T = settings.disk_temp * powf(r_in / r_xy, 0.75f);
             float3 v_gas = make_float3(-x.y, x.x, 0.0f) * omega;
             
             float gas_speed = sqrtf(v_gas.x*v_gas.x + v_gas.y*v_gas.y + v_gas.z*v_gas.z);
@@ -256,13 +281,23 @@ __device__ void sample_accretion_disk(
             float g_doppler = sqrtf(1.0f - beta * beta) / (1.0f - beta);
             
             float x_len = sqrtf(x.x*x.x + x.y*x.y + x.z*x.z);
-            float r = fmaxf(x_len, mass * 0.5f + 0.001f);
-            float u = fminf(mass / (2.0f * r), 0.999f);
+            float r = fmaxf(x_len, settings.mass * 0.5f + 0.001f);
+            float u = fminf(settings.mass / (2.0f * r), 0.999f);
             float g_grav = (1.0f - u) / (1.0f + u);
             
             float g_total = g_doppler * g_grav;
             float T_obs = T * g_total;
-            float3 emission_color = blackbody(T_obs);
+            
+            float3 emission_color = get_color_from_spectrum(T_obs, settings.spectrum_mode);
+            if (settings.shift_visualizer != 0) {
+                if (g_total > 1.0f) {
+                    float t = fmaxf(0.0f, fminf((g_total - 1.0f) * 1.5f, 1.0f));
+                    emission_color = mix(make_float3(0.1f, 0.7f, 0.1f), make_float3(0.0f, 0.5f, 1.0f), t) * 2.0f;
+                } else {
+                    float t = fmaxf(0.0f, fminf((1.0f - g_total) * 1.2f, 1.0f));
+                    emission_color = mix(make_float3(0.1f, 0.7f, 0.1f), make_float3(1.0f, 0.1f, 0.0f), t) * 2.0f;
+                }
+            }
             
             float dl = h;
             float opacity = density * 2.5f * dl;
@@ -278,34 +313,141 @@ __device__ void sample_accretion_disk(
     }
 }
 
-// Raymarching GPU kernel
+// CSG Signed Distance Functions
+__device__ inline float sdSphere(float3 p, float r) {
+    return sqrtf(p.x*p.x + p.y*p.y + p.z*p.z) - r;
+}
+
+__device__ inline float sdTorus(float3 p, float2 t) {
+    float q_x = sqrtf(p.x*p.x + p.y*p.y) - t.x;
+    return sqrtf(q_x*q_x + p.z*p.z) - t.y;
+}
+
+__device__ inline float smin(float a, float b, float k) {
+    if (k <= 0.001f) return fminf(a, b);
+    float h = fmaxf(k - fabsf(a - b), 0.0f) / k;
+    return fminf(a, b) - h * h * k * 0.25f;
+}
+
+__device__ inline float smax(float a, float b, float k) {
+    if (k <= 0.001f) return fmaxf(a, b);
+    float h = fmaxf(k - fabsf(a - b), 0.0f) / k;
+    return fmaxf(a, b) + h * h * k * 0.25f;
+}
+
+// CSG Evaluation returning distance & material color
+__device__ float map_csg(float3 p, int csg_mode, float csg_blend, float mass, float3 &out_color) {
+    float d_main = sdSphere(p, 1.8f * mass);
+    out_color = make_float3(0.2f, 0.6f, 1.0f); // Default cyan
+    
+    if (csg_mode == 0) return d_main; // Disabled CSG
+    
+    float3 p_torus = make_float3(p.x, p.y, p.z - 0.4f * mass);
+    float d_torus = sdTorus(p_torus, make_float2(3.5f * mass, 0.4f * mass));
+    
+    float3 p_sph = make_float3(p.x - 3.2f * mass, p.y, p.z);
+    float d_sph = sdSphere(p_sph, 0.9f * mass);
+    float d_sub = fminf(d_torus, d_sph);
+    
+    if (csg_mode == 1) { // Union
+        if (d_sub < d_main) out_color = make_float3(1.0f, 0.4f, 0.2f);
+        return fminf(d_main, d_sub);
+    } else if (csg_mode == 2) { // Smooth Min
+        float d_res = smin(d_main, d_sub, csg_blend);
+        float h = fmaxf(0.0f, fminf((d_main - d_sub) / (csg_blend + 1e-4f) + 0.5f, 1.0f));
+        out_color = mix(make_float3(1.0f, 0.4f, 0.2f), make_float3(0.2f, 0.6f, 1.0f), h);
+        return d_res;
+    } else if (csg_mode == 3) { // Subtraction
+        float d_res = smax(d_main, -d_sub, csg_blend);
+        if (-d_sub > d_main) out_color = make_float3(0.9f, 0.1f, 0.3f);
+        return d_res;
+    } else if (csg_mode == 4) { // Intersection
+        float d_res = smax(d_main, d_sub, csg_blend);
+        out_color = make_float3(0.8f, 0.2f, 0.9f);
+        return d_res;
+    }
+    return d_main;
+}
+
+// Compute normal vector for CSG surface
+__device__ float3 calc_normal(float3 p, int csg_mode, float csg_blend, float mass) {
+    float eps = 0.002f;
+    float3 dummy;
+    float d = map_csg(p, csg_mode, csg_blend, mass, dummy);
+    float3 n = make_float3(
+        map_csg(make_float3(p.x + eps, p.y, p.z), csg_mode, csg_blend, mass, dummy) - d,
+        map_csg(make_float3(p.x, p.y + eps, p.z), csg_mode, csg_blend, mass, dummy) - d,
+        map_csg(make_float3(p.x, p.y, p.z + eps), csg_mode, csg_blend, mass, dummy) - d
+    );
+    float len = sqrtf(n.x*n.x + n.y*n.y + n.z*n.z);
+    return (len > 0.0001f) ? make_float3(n.x/len, n.y/len, n.z/len) : make_float3(0,0,1);
+}
+
+// Soft Shadows approximation via sphere tracing penumbra
+__device__ float evaluate_soft_shadow(float3 ro, float3 rd, int csg_mode, float csg_blend, float mass, float k) {
+    float res = 1.0f;
+    float t = 0.05f;
+    float3 dummy;
+    for (int i = 0; i < 20; ++i) {
+        float h = map_csg(ro + rd * t, csg_mode, csg_blend, mass, dummy);
+        if (h < 0.001f) return 0.0f;
+        res = fminf(res, k * h / t);
+        t += fmaxf(h, 0.04f);
+        if (t > 15.0f) break;
+    }
+    return fmaxf(0.0f, fminf(res, 1.0f));
+}
+
+// SDF Ambient Occlusion estimator
+__device__ float evaluate_ao(float3 p, float3 n, int csg_mode, float csg_blend, float mass, float intensity) {
+    float occ = 0.0f;
+    float sca = 1.0f;
+    float3 dummy;
+    for (int i = 0; i < 5; ++i) {
+        float h = 0.01f + 0.12f * (float)i;
+        float d = map_csg(p + n * h, csg_mode, csg_blend, mass, dummy);
+        occ += (h - d) * sca;
+        sca *= 0.75f;
+    }
+    return fmaxf(0.0f, 1.0f - intensity * occ);
+}
+
+// Raymarching GPU kernel with CUDA Shared Memory Caching & Warp Primitives
 __global__ void raymarch_kernel(
     float4 *d_output,
+    unsigned long long *d_step_counter,
     SimulationSettings settings,
     cudaTextureObject_t noiseTex
 ) {
+    // 1. CUDA Shared Memory Optimization: Block-level uniform settings caching
+    __shared__ SimulationSettings s_settings;
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+        s_settings = settings;
+    }
+    __syncthreads();
+
     int x_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int y_idx = blockIdx.y * blockDim.y + threadIdx.y;
     
-    int w = (int)settings.resolution.x;
-    int h = (int)settings.resolution.y;
+    int w = (int)s_settings.resolution.x;
+    int h = (int)s_settings.resolution.y;
     
     if (x_idx >= w || y_idx >= h) return;
     
-    // Invert vertical axis to match OpenGL UV layout (WebGL bottom-up coordinate space)
+    // Invert vertical axis to match OpenGL UV layout
     float u_val = (float)x_idx / (float)w;
     float v_val = (float)(h - 1 - y_idx) / (float)h;
     
     float px = (u_val * 2.0f - 1.0f);
     float py = (v_val * 2.0f - 1.0f);
-    px *= (settings.resolution.x / fmaxf(settings.resolution.y, 1.0f));
+    px *= (s_settings.resolution.x / fmaxf(s_settings.resolution.y, 1.0f));
     
-    float3 ray_pos = settings.cam_pos;
+    float3 ray_pos = s_settings.cam_pos;
     
     float3 dir_term = make_float3(
-        settings.cam_dir.x + px * settings.fov_scale * settings.cam_right.x + py * settings.fov_scale * settings.cam_up.x,
-        settings.cam_dir.y + px * settings.fov_scale * settings.cam_right.y + py * settings.fov_scale * settings.cam_up.y,
-        settings.cam_dir.z + px * settings.fov_scale * settings.cam_right.z + py * settings.fov_scale * settings.cam_up.z
+        s_settings.cam_dir.x + px * s_settings.fov_scale * s_settings.cam_right.x + py * s_settings.fov_scale * s_settings.cam_up.x,
+        s_settings.cam_dir.y + px * s_settings.fov_scale * s_settings.cam_right.y + py * s_settings.fov_scale * s_settings.cam_up.y,
+        s_settings.cam_dir.z + px * s_settings.fov_scale * s_settings.cam_right.z + py * s_settings.fov_scale * s_settings.cam_up.z
     );
     float dir_len = sqrtf(dir_term.x*dir_term.x + dir_term.y*dir_term.y + dir_term.z*dir_term.z);
     float3 ray_dir = make_float3(dir_term.x / dir_len, dir_term.y / dir_len, dir_term.z / dir_len);
@@ -313,8 +455,8 @@ __global__ void raymarch_kernel(
     float3 ray_vel = ray_dir;
     
     float r_cam = sqrtf(ray_pos.x*ray_pos.x + ray_pos.y*ray_pos.y + ray_pos.z*ray_pos.z);
-    float r_cam_clamped = fmaxf(r_cam, settings.mass * 0.5f + 0.001f);
-    float u_cam = fminf(settings.mass / (2.0f * r_cam_clamped), 0.999f);
+    float r_cam_clamped = fmaxf(r_cam, s_settings.mass * 0.5f + 0.001f);
+    float u_cam = fminf(s_settings.mass / (2.0f * r_cam_clamped), 0.999f);
     float n_cam = powf(1.0f + u_cam, 3.0f) / (1.0f - u_cam);
     
     ray_vel.x /= n_cam;
@@ -323,10 +465,14 @@ __global__ void raymarch_kernel(
     
     float3 accum_color = make_float3(0.0f, 0.0f, 0.0f);
     float accum_trans = 1.0f;
-    float r_eh = settings.mass * 0.5f;
+    float r_eh = s_settings.mass * 0.5f;
     
-    if (!settings.relativity || settings.mass == 0.0f) {
-        if (settings.disk) {
+    bool render_newtonian = s_settings.split_active != 0 && u_val > s_settings.split_x;
+
+    unsigned int thread_steps = 0;
+
+    if (!s_settings.relativity || s_settings.mass == 0.0f || render_newtonian) {
+        if (s_settings.disk) {
             if (ray_vel.z != 0.0f) {
                 float t = -ray_pos.z / ray_vel.z;
                 if (t > 0.0f) {
@@ -336,24 +482,28 @@ __global__ void raymarch_kernel(
                         ray_pos.z + t * ray_vel.z
                     );
                     float r_xy = sqrtf(hit_pos.x*hit_pos.x + hit_pos.y*hit_pos.y);
-                    float r_in = 3.2f * settings.mass;
-                    float r_out = 9.5f * settings.mass;
-                    if (r_xy >= r_in && r_xy <= r_out && settings.mass > 0.0f) {
-                        float T = settings.disk_temp * powf(r_in / r_xy, 0.75f);
-                        float omega = 1.0f / (powf(r_xy, 1.5f) + settings.spin);
+                    float r_in = 3.2f * s_settings.mass;
+                    float r_out = 9.5f * s_settings.mass;
+                    if (r_xy >= r_in && r_xy <= r_out && s_settings.mass > 0.0f) {
+                        float T = s_settings.disk_temp * powf(r_in / r_xy, 0.75f);
+                        float omega = 1.0f / (powf(r_xy, 1.5f) + s_settings.spin);
                         float phi = atan2f(hit_pos.y, hit_pos.x);
-                        float phi_rotated = phi - settings.time * (0.8f / (powf(r_xy, 1.5f) + 0.1f));
+                        float phi_rotated = phi - s_settings.time * s_settings.disk_speed * (0.8f / (powf(r_xy, 1.5f) + 0.1f));
                         
-                        float u1 = r_xy * 0.12f - settings.time * 0.04f;
+                        float u1 = r_xy * 0.12f - s_settings.time * 0.04f;
                         float v1 = phi_rotated * 1.5f / (2.0f * PI);
-                        float u2 = r_xy * 0.28f + settings.time * 0.08f;
+                        float u2 = r_xy * 0.28f + s_settings.time * 0.08f;
                         float v2 = phi_rotated * 3.0f / (2.0f * PI);
                         
                         float n1 = tex2D<float4>(noiseTex, u1, v1).x;
                         float n2 = tex2D<float4>(noiseTex, u2, v2).y * 0.5f;
                         float noise = (n1 + n2) / 1.5f;
                         
-                        accum_color = blackbody(T) * (0.25f + 0.75f * noise);
+                        float3 color = get_color_from_spectrum(T, s_settings.spectrum_mode) * (0.25f + 0.75f * noise);
+                        if (s_settings.shift_visualizer != 0) {
+                            color = make_float3(0.1f, 0.7f, 0.1f) * (0.25f + 0.75f * noise) * 2.0f;
+                        }
+                        accum_color = color;
                         accum_trans = 0.15f;
                     }
                 }
@@ -361,46 +511,164 @@ __global__ void raymarch_kernel(
         }
         
         float3 bg_color = make_float3(0.0f, 0.0f, 0.0f);
-        if (settings.grid) {
+        if (s_settings.grid) {
             bg_color = get_grid(ray_dir);
-        } else if (settings.stars) {
+        } else if (s_settings.stars) {
             bg_color = get_starfield(ray_dir);
         }
         
-        accum_color.x += accum_trans * bg_color.x;
-        accum_color.y += accum_trans * bg_color.y;
-        accum_color.z += accum_trans * bg_color.z;
+        float3 final_color = accum_color + accum_trans * bg_color;
         
-        d_output[y_idx * w + x_idx] = make_float4(accum_color.x, accum_color.y, accum_color.z, 1.0f);
+        if (s_settings.split_active) {
+            float dist_to_line = fabsf(u_val - s_settings.split_x);
+            if (dist_to_line < 0.002f) {
+                final_color = mix(make_float3(0.0f, 0.9f, 1.0f), final_color, dist_to_line / 0.002f);
+            }
+        }
+        
+        float3 color_exposed = final_color * s_settings.bloom_intensity;
+        final_color.x = color_exposed.x / (color_exposed.x + 1.0f);
+        final_color.y = color_exposed.y / (color_exposed.y + 1.0f);
+        final_color.z = color_exposed.z / (color_exposed.z + 1.0f);
+        
+        final_color.x = powf(final_color.x, 1.0f / 2.2f);
+        final_color.y = powf(final_color.y, 1.0f / 2.2f);
+        final_color.z = powf(final_color.z, 1.0f / 2.2f);
+        
+        d_output[y_idx * w + x_idx] = make_float4(final_color.x, final_color.y, final_color.z, 1.0f);
         return;
     }
     
-    // Geodesic integration loop
+    // Geodesic & CSG integration loop
     bool captured = false;
+    bool active = true;
     
     for (int step = 0; step < 300; ++step) {
-        if (step >= settings.max_steps) break;
+        if (!active || step >= s_settings.max_steps) break;
+        thread_steps++;
+        
         float r = sqrtf(ray_pos.x*ray_pos.x + ray_pos.y*ray_pos.y + ray_pos.z*ray_pos.z);
         
         if (r <= r_eh + 0.015f) {
             captured = true;
+            active = false;
             break;
         }
         
         if (r > 30.0f) {
+            active = false;
             break;
+        }
+
+        // CSG Surface Raymarching Check
+        if (s_settings.csg_mode != 0 && s_settings.mass > 0.0f) {
+            float3 obj_color;
+            float d_csg = map_csg(ray_pos, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass, obj_color);
+            if (d_csg < 0.01f) {
+                float3 norm = calc_normal(ray_pos, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass);
+                float3 light_dir = make_float3(0.577f, 0.577f, 0.577f);
+                float diff = fmaxf(0.15f, dot(norm, light_dir));
+                
+                float shadow = 1.0f;
+                if (s_settings.soft_shadows) {
+                    shadow = evaluate_soft_shadow(ray_pos + norm * 0.02f, light_dir, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass, s_settings.shadow_k);
+                }
+                
+                float ao = 1.0f;
+                if (s_settings.ao_enabled) {
+                    ao = evaluate_ao(ray_pos, norm, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass, s_settings.ao_intensity);
+                }
+                
+                float3 surf_color = obj_color * (diff * shadow * ao);
+                accum_color.x += accum_trans * surf_color.x;
+                accum_color.y += accum_trans * surf_color.y;
+                accum_color.z += accum_trans * surf_color.z;
+                accum_trans *= 0.10f;
+                active = false;
+                break;
+            }
         }
         
         float h_step = 0.18f * (0.05f + 0.95f * fmaxf(0.0f, fminf((r - r_eh) / 5.0f, 1.0f)));
         float3 prev_pos = ray_pos;
         
-        rk4_step(ray_pos, ray_vel, h_step, settings.mass, settings.spin);
+        rk4_step(ray_pos, ray_vel, h_step, s_settings.mass, s_settings.spin);
         
-        if (settings.disk) {
+        // Photon sphere boundary visualization crossing
+        if (s_settings.show_photon_sphere != 0 && s_settings.mass > 0.0f) {
+            float r_prev = sqrtf(prev_pos.x*prev_pos.x + prev_pos.y*prev_pos.y + prev_pos.z*prev_pos.z);
+            float r_curr = r;
+            float r_ps = 3.0f * s_settings.mass;
+            if ((r_prev > r_ps && r_curr <= r_ps) || (r_prev < r_ps && r_curr >= r_ps)) {
+                accum_color.x += accum_trans * 0.0f * 0.22f;
+                accum_color.y += accum_trans * 1.0f * 0.22f;
+                accum_color.z += accum_trans * 0.35f * 0.22f;
+            }
+        }
+        
+        // Orbiting Hotspots
+        if (s_settings.disk != 0 && s_settings.mass > 0.0f) {
+            for (int i = 0; i < 3; ++i) {
+                float r_orbit = 4.2f + (float)i * 2.0f;
+                float omega = 1.0f / (powf(r_orbit, 1.5f) + s_settings.spin);
+                float phi_hot = s_settings.time * omega * s_settings.disk_speed + (float)i * 2.0944f;
+                float3 p_orbit = make_float3(cosf(phi_hot) * r_orbit, sinf(phi_hot) * r_orbit, 0.0f);
+                
+                float3 diff = ray_pos - p_orbit;
+                float dist = sqrtf(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
+                
+                if (dist < 0.35f) {
+                    float3 v_gas = make_float3(-p_orbit.y, p_orbit.x, 0.0f) * omega;
+                    float gas_speed = sqrtf(v_gas.x*v_gas.x + v_gas.y*v_gas.y + v_gas.z*v_gas.z);
+                    if (gas_speed > 0.58f) {
+                        float scale = 0.58f / gas_speed;
+                        v_gas.x *= scale;
+                        v_gas.y *= scale;
+                        v_gas.z *= scale;
+                    }
+                    
+                    float v_len = sqrtf(ray_vel.x*ray_vel.x + ray_vel.y*ray_vel.y + ray_vel.z*ray_vel.z);
+                    float3 photon_dir = make_float3(0.0f, 0.0f, 0.0f);
+                    if (v_len > 0.0f) {
+                        photon_dir = make_float3(ray_vel.x / v_len, ray_vel.y / v_len, ray_vel.z / v_len);
+                    }
+                    
+                    float beta = dot(v_gas, photon_dir);
+                    float g_doppler = sqrtf(1.0f - beta * beta) / (1.0f - beta);
+                    
+                    float g_grav = (1.0f - s_settings.mass / (2.0f * r_orbit)) / (1.0f + s_settings.mass / (2.0f * r_orbit));
+                    float g_total = g_doppler * g_grav;
+                    
+                    float3 p_color = make_float3(1.0f, 0.45f, 0.0f);
+                    if (i == 0) { p_color = make_float3(1.0f, 0.2f, 0.1f); }
+                    else if (i == 1) { p_color = make_float3(1.0f, 0.7f, 0.1f); }
+                    else { p_color = make_float3(0.1f, 0.8f, 1.0f); }
+                    
+                    if (s_settings.shift_visualizer != 0) {
+                        if (g_total > 1.0f) {
+                            float t = fmaxf(0.0f, fminf((g_total - 1.0f) * 1.5f, 1.0f));
+                            p_color = mix(make_float3(0.1f, 0.7f, 0.1f), make_float3(0.0f, 0.5f, 1.0f), t) * 2.0f;
+                        } else {
+                            float t = fmaxf(0.0f, fminf((1.0f - g_total) * 1.2f, 1.0f));
+                            p_color = mix(make_float3(0.1f, 0.7f, 0.1f), make_float3(1.0f, 0.1f, 0.0f), t) * 2.0f;
+                        }
+                    } else {
+                        p_color = p_color * powf(g_total, 3.8f);
+                    }
+                    
+                    float density_p = expf(-powf(dist / 0.18f, 2.0f));
+                    accum_color.x += accum_trans * p_color.x * density_p * 0.45f;
+                    accum_color.y += accum_trans * p_color.y * density_p * 0.45f;
+                    accum_color.z += accum_trans * p_color.z * density_p * 0.45f;
+                }
+            }
+        }
+        
+        if (s_settings.disk) {
             float sign_prev = prev_pos.z;
             float sign_curr = ray_pos.z;
             
-            if (sign_prev * sign_curr <= 0.0f || fabsf(ray_pos.z) < 0.18f * settings.mass) {
+            if (sign_prev * sign_curr <= 0.0f || fabsf(ray_pos.z) < 0.18f * s_settings.mass) {
                 float fraction = fabsf(prev_pos.z) / (fabsf(prev_pos.z) + fabsf(ray_pos.z) + 1e-6f);
                 float3 cross_pos = make_float3(
                     prev_pos.x * (1.0f - fraction) + ray_pos.x * fraction,
@@ -410,7 +678,7 @@ __global__ void raymarch_kernel(
                 
                 sample_accretion_disk(
                     cross_pos, ray_vel, h_step,
-                    settings.mass, settings.spin, settings.disk_temp, settings.time,
+                    s_settings,
                     noiseTex,
                     accum_color, accum_trans
                 );
@@ -419,10 +687,29 @@ __global__ void raymarch_kernel(
         
         if (accum_trans < 0.01f) {
             accum_trans = 0.0f;
+            active = false;
+            break;
+        }
+
+        // 2. CUDA Warp-level optimization: Early warp exit check
+        if (!__any_sync(0xFFFFFFFF, active)) {
             break;
         }
     }
     
+    // 3. CUDA Warp Reduction for performance metrics step counter
+    if (d_step_counter != nullptr) {
+        unsigned int mask = 0xFFFFFFFF;
+        unsigned int warp_steps = thread_steps;
+        for (int offset = 16; offset > 0; offset /= 2) {
+            warp_steps += __shfl_down_sync(mask, warp_steps, offset);
+        }
+        int lane = (threadIdx.x + threadIdx.y * blockDim.x) % 32;
+        if (lane == 0 && warp_steps > 0) {
+            atomicAdd(d_step_counter, (unsigned long long)warp_steps);
+        }
+    }
+
     float3 final_color = make_float3(0.0f, 0.0f, 0.0f);
     if (!captured) {
         float vel_len = sqrtf(ray_vel.x*ray_vel.x + ray_vel.y*ray_vel.y + ray_vel.z*ray_vel.z);
@@ -431,9 +718,9 @@ __global__ void raymarch_kernel(
             escape_dir = make_float3(ray_vel.x / vel_len, ray_vel.y / vel_len, ray_vel.z / vel_len);
         }
         
-        if (settings.grid) {
+        if (s_settings.grid) {
             final_color = get_grid(escape_dir);
-        } else if (settings.stars) {
+        } else if (s_settings.stars) {
             final_color = get_starfield(escape_dir);
         }
     }
@@ -444,10 +731,18 @@ __global__ void raymarch_kernel(
         accum_color.z + accum_trans * final_color.z
     );
     
+    if (s_settings.split_active) {
+        float dist_to_line = fabsf(u_val - s_settings.split_x);
+        if (dist_to_line < 0.002f) {
+            color_out = mix(make_float3(0.0f, 0.9f, 1.0f), color_out, dist_to_line / 0.002f);
+        }
+    }
+    
     // Tone mapping and gamma correction
-    color_out.x = color_out.x / (color_out.x + 1.0f);
-    color_out.y = color_out.y / (color_out.y + 1.0f);
-    color_out.z = color_out.z / (color_out.z + 1.0f);
+    float3 color_exposed = color_out * s_settings.bloom_intensity;
+    color_out.x = color_exposed.x / (color_exposed.x + 1.0f);
+    color_out.y = color_exposed.y / (color_exposed.y + 1.0f);
+    color_out.z = color_exposed.z / (color_exposed.z + 1.0f);
     
     color_out.x = powf(color_out.x, 1.0f / 2.2f);
     color_out.y = powf(color_out.y, 1.0f / 2.2f);
@@ -459,6 +754,7 @@ __global__ void raymarch_kernel(
 // Kernel launcher
 extern "C" void run_raymarch_kernel(
     float4 *d_output,
+    unsigned long long *d_step_counter,
     SimulationSettings settings,
     cudaTextureObject_t noiseTex
 ) {
@@ -467,6 +763,6 @@ extern "C" void run_raymarch_kernel(
         ((int)settings.resolution.x + block.x - 1) / block.x,
         ((int)settings.resolution.y + block.y - 1) / block.y
     );
-    raymarch_kernel<<<grid, block>>>(d_output, settings, noiseTex);
+    raymarch_kernel<<<grid, block>>>(d_output, d_step_counter, settings, noiseTex);
     cudaDeviceSynchronize();
 }
