@@ -1,29 +1,146 @@
 [
   {
-    "preset": "1080p",
+    "resolution": "1080p",
     "width": 1920,
     "height": 1080,
-    "avg_frame_time_ms": 0.127,
-    "fps": 7877.62,
+    "block_dim_x": 16,
+    "block_dim_y": 16,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.116,
+    "fps": 8639.60,
     "avg_steps_per_pixel": 1.00,
-    "memory_throughput_gbps": 522.72
+    "memory_throughput_gbps": 573.28
   },
   {
-    "preset": "1440p",
+    "resolution": "1080p",
+    "width": 1920,
+    "height": 1080,
+    "block_dim_x": 32,
+    "block_dim_y": 8,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.095,
+    "fps": 10531.34,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 698.81
+  },
+  {
+    "resolution": "1080p",
+    "width": 1920,
+    "height": 1080,
+    "block_dim_x": 32,
+    "block_dim_y": 32,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.152,
+    "fps": 6566.37,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 435.71
+  },
+  {
+    "resolution": "1080p",
+    "width": 1920,
+    "height": 1080,
+    "block_dim_x": 8,
+    "block_dim_y": 8,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.123,
+    "fps": 8119.98,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 538.80
+  },
+  {
+    "resolution": "1440p",
     "width": 2560,
     "height": 1440,
-    "avg_frame_time_ms": 0.185,
-    "fps": 5416.32,
+    "block_dim_x": 16,
+    "block_dim_y": 16,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.233,
+    "fps": 4287.97,
     "avg_steps_per_pixel": 1.00,
-    "memory_throughput_gbps": 638.94
+    "memory_throughput_gbps": 505.83
   },
   {
-    "preset": "4K",
+    "resolution": "1440p",
+    "width": 2560,
+    "height": 1440,
+    "block_dim_x": 32,
+    "block_dim_y": 8,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.180,
+    "fps": 5542.35,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 653.80
+  },
+  {
+    "resolution": "1440p",
+    "width": 2560,
+    "height": 1440,
+    "block_dim_x": 32,
+    "block_dim_y": 32,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.179,
+    "fps": 5582.48,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 658.54
+  },
+  {
+    "resolution": "1440p",
+    "width": 2560,
+    "height": 1440,
+    "block_dim_x": 8,
+    "block_dim_y": 8,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.211,
+    "fps": 4742.83,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 559.49
+  },
+  {
+    "resolution": "4K",
     "width": 3840,
     "height": 2160,
-    "avg_frame_time_ms": 0.379,
-    "fps": 2641.74,
+    "block_dim_x": 16,
+    "block_dim_y": 16,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.397,
+    "fps": 2518.05,
     "avg_steps_per_pixel": 1.00,
-    "memory_throughput_gbps": 701.17
+    "memory_throughput_gbps": 668.34
+  },
+  {
+    "resolution": "4K",
+    "width": 3840,
+    "height": 2160,
+    "block_dim_x": 32,
+    "block_dim_y": 8,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.367,
+    "fps": 2722.76,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 722.68
+  },
+  {
+    "resolution": "4K",
+    "width": 3840,
+    "height": 2160,
+    "block_dim_x": 32,
+    "block_dim_y": 32,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.415,
+    "fps": 2408.43,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 639.25
+  },
+  {
+    "resolution": "4K",
+    "width": 3840,
+    "height": 2160,
+    "block_dim_x": 8,
+    "block_dim_y": 8,
+    "spatial_accel": 1,
+    "avg_frame_time_ms": 0.407,
+    "fps": 2457.38,
+    "avg_steps_per_pixel": 1.00,
+    "memory_throughput_gbps": 652.24
   }
 ]

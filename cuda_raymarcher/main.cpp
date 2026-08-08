@@ -249,22 +249,30 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 
 static bool triggerBenchmark = false;
 
-// Automated Benchmark Suite across 1080p, 1440p, 4K
+// Automated Benchmark Suite across 1080p, 1440p, 4K and Workgroup Block Configurations
 void run_benchmark_suite(SimulationSettings currentSettings, cudaTextureObject_t noiseTex) {
-    std::cout << "\n=========================================================================================\n";
-    std::cout << "                 CUDA RAYMARCHER AUTOMATED PERFORMANCE BENCHMARK SUITE                   \n";
-    std::cout << "=========================================================================================\n";
+    std::cout << "\n=========================================================================================================\n";
+    std::cout << "                   CUDA RAYMARCHER AUTOMATED PARALLEL COMPUTING BENCHMARK SUITE                          \n";
+    std::cout << "=========================================================================================================\n";
     std::cout << " Config: Max Steps = " << currentSettings.max_steps << " | Mass = " << currentSettings.mass
               << " | Spin = " << currentSettings.spin << " | Relativity = " << (currentSettings.relativity ? "ON" : "OFF") << "\n";
-    std::cout << "-----------------------------------------------------------------------------------------\n";
-    std::cout << " Resolution | Total Pixels | Avg Frame Time |    FPS    | Avg Ray Steps/Px | Throughput (GB/s)\n";
-    std::cout << "------------+--------------+----------------+-----------+------------------+------------------\n";
+    std::cout << "---------------------------------------------------------------------------------------------------------\n";
+    std::cout << " Res   | Block Dim | Spatial Accel | Frame Time (ms) |    FPS    | Ray Steps / Px | Throughput (GB/s)\n";
+    std::cout << "-------+-----------+---------------+-----------------+-----------+----------------+------------------\n";
 
     struct ResConfig { const char* name; int w; int h; };
     ResConfig configs[] = {
         { "1080p", 1920, 1080 },
         { "1440p", 2560, 1440 },
         { "4K",    3840, 2160 }
+    };
+
+    struct BlockConfig { int x; int y; const char* name; };
+    BlockConfig blocks[] = {
+        { 16, 16, "16x16" },
+        { 32,  8, "32x8"  },
+        { 32, 32, "32x32" },
+        {  8,  8, "8x8"   }
     };
 
     cudaEvent_t startEvent, stopEvent;
@@ -277,6 +285,9 @@ void run_benchmark_suite(SimulationSettings currentSettings, cudaTextureObject_t
     FILE* jsonFile = fopen("benchmark_report.json", "w");
     if (jsonFile) fprintf(jsonFile, "[\n");
 
+    int testIndex = 0;
+    int totalTests = 3 * 4;
+
     for (int i = 0; i < 3; ++i) {
         int w = configs[i].w;
         int h = configs[i].h;
@@ -285,53 +296,61 @@ void run_benchmark_suite(SimulationSettings currentSettings, cudaTextureObject_t
         float4* d_output = nullptr;
         cudaMalloc(&d_output, bufferSize);
 
-        SimulationSettings bSettings = currentSettings;
-        bSettings.resolution = make_float2((float)w, (float)h);
+        for (int b = 0; b < 4; ++b) {
+            testIndex++;
+            SimulationSettings bSettings = currentSettings;
+            bSettings.resolution = make_float2((float)w, (float)h);
+            bSettings.block_dim_x = blocks[b].x;
+            bSettings.block_dim_y = blocks[b].y;
+            bSettings.spatial_accel = 1;
 
-        // Warmup passes
-        for (int warmup = 0; warmup < 5; ++warmup) {
-            run_raymarch_kernel(d_output, nullptr, bSettings, noiseTex);
-        }
+            // Warmup passes
+            for (int warmup = 0; warmup < 3; ++warmup) {
+                run_raymarch_kernel(d_output, nullptr, bSettings, noiseTex);
+            }
 
-        cudaMemset(d_step_counter, 0, sizeof(unsigned long long));
+            cudaMemset(d_step_counter, 0, sizeof(unsigned long long));
 
-        const int num_frames = 60;
-        cudaEventRecord(startEvent);
-        for (int f = 0; f < num_frames; ++f) {
-            bSettings.time += 0.016f;
-            run_raymarch_kernel(d_output, d_step_counter, bSettings, noiseTex);
-        }
-        cudaEventRecord(stopEvent);
-        cudaEventSynchronize(stopEvent);
+            const int num_frames = 30;
+            cudaEventRecord(startEvent);
+            for (int f = 0; f < num_frames; ++f) {
+                bSettings.time += 0.016f;
+                run_raymarch_kernel(d_output, d_step_counter, bSettings, noiseTex);
+            }
+            cudaEventRecord(stopEvent);
+            cudaEventSynchronize(stopEvent);
 
-        float total_ms = 0.0f;
-        cudaEventElapsedTime(&total_ms, startEvent, stopEvent);
+            float total_ms = 0.0f;
+            cudaEventElapsedTime(&total_ms, startEvent, stopEvent);
 
-        unsigned long long h_step_counter = 0;
-        cudaMemcpy(&h_step_counter, d_step_counter, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+            unsigned long long h_step_counter = 0;
+            cudaMemcpy(&h_step_counter, d_step_counter, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
 
-        float avg_frame_time = total_ms / (float)num_frames;
-        float fps = 1000.0f / avg_frame_time;
-        double total_pixels = (double)w * (double)h;
-        double avg_steps_per_px = (double)h_step_counter / (total_pixels * (double)num_frames);
-        
-        // Memory Throughput calculation: Output Buffer write (16B) + Ray Step sampling (16B/step)
-        double bytes_per_frame = (double)bufferSize + (double)h_step_counter / (double)num_frames * 16.0;
-        double throughput_gbps = (bytes_per_frame / (avg_frame_time * 1e-3)) / 1e9;
+            float avg_frame_time = total_ms / (float)num_frames;
+            float fps = 1000.0f / fmaxf(avg_frame_time, 0.001f);
+            double total_pixels = (double)w * (double)h;
+            double avg_steps_per_px = (double)h_step_counter / (total_pixels * (double)num_frames);
 
-        printf(" %-10s | %12.0f | %12.3f ms | %9.1f | %16.2f | %16.2f\n",
-               configs[i].name, total_pixels, avg_frame_time, fps, avg_steps_per_px, throughput_gbps);
+            double bytes_per_frame = (double)bufferSize + (double)h_step_counter / (double)num_frames * 16.0;
+            double throughput_gbps = (bytes_per_frame / (avg_frame_time * 1e-3)) / 1e9;
 
-        if (jsonFile) {
-            fprintf(jsonFile, "  {\n");
-            fprintf(jsonFile, "    \"preset\": \"%s\",\n", configs[i].name);
-            fprintf(jsonFile, "    \"width\": %d,\n", w);
-            fprintf(jsonFile, "    \"height\": %d,\n", h);
-            fprintf(jsonFile, "    \"avg_frame_time_ms\": %.3f,\n", avg_frame_time);
-            fprintf(jsonFile, "    \"fps\": %.2f,\n", fps);
-            fprintf(jsonFile, "    \"avg_steps_per_pixel\": %.2f,\n", avg_steps_per_px);
-            fprintf(jsonFile, "    \"memory_throughput_gbps\": %.2f\n", throughput_gbps);
-            fprintf(jsonFile, "  }%s\n", (i == 2 ? "" : ","));
+            printf(" %-5s | %-9s | %-13s | %15.3f | %9.1f | %14.2f | %16.2f\n",
+                   configs[i].name, blocks[b].name, "ENABLED", avg_frame_time, fps, avg_steps_per_px, throughput_gbps);
+
+            if (jsonFile) {
+                fprintf(jsonFile, "  {\n");
+                fprintf(jsonFile, "    \"resolution\": \"%s\",\n", configs[i].name);
+                fprintf(jsonFile, "    \"width\": %d,\n", w);
+                fprintf(jsonFile, "    \"height\": %d,\n", h);
+                fprintf(jsonFile, "    \"block_dim_x\": %d,\n", blocks[b].x);
+                fprintf(jsonFile, "    \"block_dim_y\": %d,\n", blocks[b].y);
+                fprintf(jsonFile, "    \"spatial_accel\": 1,\n");
+                fprintf(jsonFile, "    \"avg_frame_time_ms\": %.3f,\n", avg_frame_time);
+                fprintf(jsonFile, "    \"fps\": %.2f,\n", fps);
+                fprintf(jsonFile, "    \"avg_steps_per_pixel\": %.2f,\n", avg_steps_per_px);
+                fprintf(jsonFile, "    \"memory_throughput_gbps\": %.2f\n", throughput_gbps);
+                fprintf(jsonFile, "  }%s\n", (testIndex == totalTests ? "" : ","));
+            }
         }
 
         cudaFree(d_output);
@@ -340,13 +359,13 @@ void run_benchmark_suite(SimulationSettings currentSettings, cudaTextureObject_t
     if (jsonFile) {
         fprintf(jsonFile, "]\n");
         fclose(jsonFile);
-        std::cout << "\n[Benchmark] Results exported cleanly to benchmark_report.json\n";
+        std::cout << "\n[Benchmark] Performance report exported cleanly to benchmark_report.json\n";
     }
 
     cudaFree(d_step_counter);
     cudaEventDestroy(startEvent);
     cudaEventDestroy(stopEvent);
-    std::cout << "=========================================================================================\n\n";
+    std::cout << "=========================================================================================================\n\n";
 }
 
 // GLFW keyboard callback
@@ -472,6 +491,12 @@ int main(int argc, char** argv) {
     settings.polarization_mode = 0;
     settings.taa_enabled = 0;
     settings.taa_blend = 0.15f;
+
+    // CUDA Optimization & Diagnostics Defaults
+    settings.block_dim_x = 32;
+    settings.block_dim_y = 8;
+    settings.spatial_accel = 1;
+    settings.heatmap_mode = 0;
 
     bool runBenchmarkOnly = false;
     
@@ -808,6 +833,34 @@ int main(int argc, char** argv) {
                 ImGui::Text("Rays Throughput: %.2f Million Rays/sec", mRaysPerSec);
                 ImGui::Text("Step Throughput: %.2f Million Steps/sec", mStepsPerSec);
                 ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "[NVIDIA CUDA Cores Active]");
+            }
+            ImGui::Separator();
+
+            // Thread Block & Hardware Optimization Tuning Panel
+            if (ImGui::CollapsingHeader("CUDA Thread Block & Acceleration Tuning", ImGuiTreeNodeFlags_DefaultOpen)) {
+                int current_block_cfg = 1;
+                if (settings.block_dim_x == 16 && settings.block_dim_y == 16) current_block_cfg = 0;
+                else if (settings.block_dim_x == 32 && settings.block_dim_y == 8) current_block_cfg = 1;
+                else if (settings.block_dim_x == 32 && settings.block_dim_y == 32) current_block_cfg = 2;
+                else if (settings.block_dim_x == 8 && settings.block_dim_y == 8) current_block_cfg = 3;
+
+                const char* block_names[] = { "16x16 (256 threads)", "32x8 (256 threads - Warp Aligned)", "32x32 (1024 threads - Max)", "8x8 (64 threads)" };
+                if (ImGui::Combo("Thread Block Size", &current_block_cfg, block_names, IM_ARRAYSIZE(block_names))) {
+                    if (current_block_cfg == 0) { settings.block_dim_x = 16; settings.block_dim_y = 16; }
+                    else if (current_block_cfg == 1) { settings.block_dim_x = 32; settings.block_dim_y = 8; }
+                    else if (current_block_cfg == 2) { settings.block_dim_x = 32; settings.block_dim_y = 32; }
+                    else if (current_block_cfg == 3) { settings.block_dim_x = 8; settings.block_dim_y = 8; }
+                }
+
+                bool spatial_accel_bool = settings.spatial_accel != 0;
+                if (ImGui::Checkbox("Spatial Bounding Acceleration", &spatial_accel_bool)) {
+                    settings.spatial_accel = spatial_accel_bool ? 1 : 0;
+                }
+
+                bool heatmap_bool = settings.heatmap_mode != 0;
+                if (ImGui::Checkbox("Ray-Step Heatmap Visualizer", &heatmap_bool)) {
+                    settings.heatmap_mode = heatmap_bool ? 1 : 0;
+                }
             }
             ImGui::Separator();
 

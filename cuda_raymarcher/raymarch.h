@@ -41,6 +41,12 @@ struct SimulationSettings {
     int taa_enabled;      // 0: Off, 1: Temporal Anti-Aliasing (TAA) accumulation
     float taa_blend;      // Reprojection blending alpha
 
+    // Workgroup Block Tuning, Spatial Bounding Acceleration & Diagnostics
+    int block_dim_x;      // Thread block width (e.g. 16, 32, 8)
+    int block_dim_y;      // Thread block height (e.g. 16, 8, 32)
+    int spatial_accel;    // 0: Disabled, 1: Bounding Volume / Spatial Grid acceleration active
+    int heatmap_mode;     // 0: Off (Normal render), 1: Ray-Step count false-color heatmap
+
     float3 cam_pos;
     float3 cam_dir;
     float3 cam_up;
@@ -62,6 +68,9 @@ struct BenchmarkResult {
     double total_ray_steps;
     double avg_steps_per_pixel;
     double memory_throughput_gbps;
+    int block_dim_x;
+    int block_dim_y;
+    int spatial_accel;
 };
 
 // Launch function declaration for the CUDA raymarch kernel

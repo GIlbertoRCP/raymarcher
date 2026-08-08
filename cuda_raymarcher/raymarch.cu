@@ -443,6 +443,24 @@ __device__ float evaluate_ao(float3 p, float3 n, int csg_mode, float csg_blend, 
     return fmaxf(0.0f, 1.0f - intensity * occ);
 }
 
+// Heatmap false-color generator mapping normalized step counts [0.0, 1.0] to Turbo/Viridis palette
+__device__ float3 get_step_heatmap_color(float norm_steps) {
+    norm_steps = fmaxf(0.0f, fminf(norm_steps, 1.0f));
+    if (norm_steps < 0.25f) {
+        float t = norm_steps / 0.25f;
+        return mix(make_float3(0.05f, 0.05f, 0.30f), make_float3(0.0f, 0.75f, 0.85f), t);
+    } else if (norm_steps < 0.50f) {
+        float t = (norm_steps - 0.25f) / 0.25f;
+        return mix(make_float3(0.0f, 0.75f, 0.85f), make_float3(0.10f, 0.85f, 0.25f), t);
+    } else if (norm_steps < 0.75f) {
+        float t = (norm_steps - 0.50f) / 0.25f;
+        return mix(make_float3(0.10f, 0.85f, 0.25f), make_float3(0.95f, 0.85f, 0.10f), t);
+    } else {
+        float t = (norm_steps - 0.75f) / 0.25f;
+        return mix(make_float3(0.95f, 0.85f, 0.10f), make_float3(0.95f, 0.10f, 0.60f), t);
+    }
+}
+
 // Raymarching GPU kernel with CUDA Shared Memory Caching & Warp Primitives
 __global__ void raymarch_kernel(
     float4 *d_output,
@@ -574,6 +592,29 @@ __global__ void raymarch_kernel(
     bool captured = false;
     bool active = true;
     
+    // Spatial Bounding Volume Short-Circuit Acceleration
+    if (s_settings.spatial_accel != 0 && s_settings.mass > 0.0f) {
+        float r_bound = 25.0f * fmaxf(s_settings.mass, 0.1f);
+        float r_pos_orig = sqrtf(ray_pos.x * ray_pos.x + ray_pos.y * ray_pos.y + ray_pos.z * ray_pos.z);
+        if (r_pos_orig > r_bound) {
+            float v_len = sqrtf(ray_vel.x * ray_vel.x + ray_vel.y * ray_vel.y + ray_vel.z * ray_vel.z);
+            if (v_len > 0.0f) {
+                float3 dir = make_float3(ray_vel.x / v_len, ray_vel.y / v_len, ray_vel.z / v_len);
+                float dot_pos_dir = dot(ray_pos, dir);
+                // If ray points away from bounding sphere origin, it will never enter gravity zone
+                if (dot_pos_dir > 0.0f) {
+                    active = false;
+                } else {
+                    // Check closest approach distance d_perp^2 = |pos|^2 - (pos . dir)^2
+                    float d_perp2 = r_pos_orig * r_pos_orig - dot_pos_dir * dot_pos_dir;
+                    if (d_perp2 > r_bound * r_bound) {
+                        active = false;
+                    }
+                }
+            }
+        }
+    }
+
     for (int step = 0; step < 300; ++step) {
         if (!active || step >= s_settings.max_steps) break;
         thread_steps++;
@@ -776,27 +817,35 @@ __global__ void raymarch_kernel(
         }
     }
     
-    // Tone mapping and gamma correction
-    float3 color_exposed = color_out * s_settings.bloom_intensity;
-    color_out.x = color_exposed.x / (color_exposed.x + 1.0f);
-    color_out.y = color_exposed.y / (color_exposed.y + 1.0f);
-    color_out.z = color_exposed.z / (color_exposed.z + 1.0f);
-    
-    color_out.x = powf(color_out.x, 1.0f / 2.2f);
-    color_out.y = powf(color_out.y, 1.0f / 2.2f);
-    color_out.z = powf(color_out.z, 1.0f / 2.2f);
+    // Diagnostics Heatmap Mode Override
+    if (s_settings.heatmap_mode != 0) {
+        float norm_steps = (float)thread_steps / (float)fmaxf(1.0f, (float)s_settings.max_steps);
+        color_out = get_step_heatmap_color(norm_steps);
+    } else {
+        // Tone mapping and gamma correction
+        float3 color_exposed = color_out * s_settings.bloom_intensity;
+        color_out.x = color_exposed.x / (color_exposed.x + 1.0f);
+        color_out.y = color_exposed.y / (color_exposed.y + 1.0f);
+        color_out.z = color_exposed.z / (color_exposed.z + 1.0f);
+        
+        color_out.x = powf(color_out.x, 1.0f / 2.2f);
+        color_out.y = powf(color_out.y, 1.0f / 2.2f);
+        color_out.z = powf(color_out.z, 1.0f / 2.2f);
+    }
     
     d_output[y_idx * w + x_idx] = make_float4(color_out.x, color_out.y, color_out.z, 1.0f);
 }
 
-// Kernel launcher
+// Kernel launcher with dynamic CUDA thread block tuning
 extern "C" void run_raymarch_kernel(
     float4 *d_output,
     unsigned long long *d_step_counter,
     SimulationSettings settings,
     cudaTextureObject_t noiseTex
 ) {
-    dim3 block(32, 8);
+    int bx = (settings.block_dim_x > 0) ? settings.block_dim_x : 32;
+    int by = (settings.block_dim_y > 0) ? settings.block_dim_y : 8;
+    dim3 block(bx, by);
     dim3 grid(
         ((int)settings.resolution.x + block.x - 1) / block.x,
         ((int)settings.resolution.y + block.y - 1) / block.y

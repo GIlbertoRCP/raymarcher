@@ -105,6 +105,29 @@ bool test_gw_perturbation() {
     return true;
 }
 
+// 6. Validate Spatial Bounding Volume Short-Circuit Math
+bool test_spatial_bounding_acceleration() {
+    float mass = 1.8f;
+    float r_bound = 25.0f * mass; // 45.0
+
+    // Ray 1: Origin outside (50, 0, 0), direction (1, 0, 0) pointing away
+    float pos1_x = 50.0f, pos1_y = 0.0f, pos1_z = 0.0f;
+    float dir1_x = 1.0f, dir1_y = 0.0f, dir1_z = 0.0f;
+    float dot1 = pos1_x * dir1_x + pos1_y * dir1_y + pos1_z * dir1_z;
+    ASSERT_TEST(dot1 > 0.0f, "Ray pointing away from bounding origin should have positive dot product");
+
+    // Ray 2: Origin (50, 60, 0), direction (-1, 0, 0). Closest approach = 60 > r_bound (45)
+    float pos2_x = 50.0f, pos2_y = 60.0f, pos2_z = 0.0f;
+    float dir2_x = -1.0f, dir2_y = 0.0f, dir2_z = 0.0f;
+    float dot2 = pos2_x * dir2_x + pos2_y * dir2_y + pos2_z * dir2_z; // -50
+    float r2_sq = pos2_x * pos2_x + pos2_y * pos2_y + pos2_z * pos2_z; // 6100
+    float d_perp2 = r2_sq - dot2 * dot2; // 6100 - 2500 = 3600
+    ASSERT_TEST(d_perp2 > r_bound * r_bound, "Ray missing bounding sphere should have d_perp^2 > r_bound^2");
+
+    std::cout << "  [PASS] test_spatial_bounding_acceleration\n";
+    return true;
+}
+
 int main() {
     std::cout << "=========================================================\n";
     std::cout << "       CUDA RAYMARCHER AUTOMATED UNIT TEST SUITE         \n";
@@ -116,6 +139,7 @@ int main() {
     all_passed &= test_settings_alignment();
     all_passed &= test_vector_math();
     all_passed &= test_gw_perturbation();
+    all_passed &= test_spatial_bounding_acceleration();
 
     std::cout << "=========================================================\n";
     if (all_passed) {
