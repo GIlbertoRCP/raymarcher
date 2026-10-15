@@ -32,3 +32,8 @@ bin/
 *.o
 *.obj
 cmake-build-*/
+
+# Native viewer runtime output
+imgui.ini
+benchmark_report.json
+raymarcher_snap_*.bmp

@@ -1,7 +1,9 @@
-import { Settings } from './main.ts';
+import { orbitCamera } from './camera.ts';
+import type { Settings } from './settings.ts';
 import { raymarchWGSL } from './shaders/raymarch.wgsl.ts';
+import { packUniforms, UNIFORM_BUFFER_SIZE } from './uniforms.ts';
 
-export class WebGPURaymarcher {
+export class Renderer {
   private canvas: HTMLCanvasElement;
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
@@ -68,10 +70,9 @@ export class WebGPURaymarcher {
         code: raymarchWGSL,
       });
 
-      // Create uniform buffer (192 bytes total aligned)
       this.uniformBuffer = this.device.createBuffer({
         label: 'Raymarcher Uniform Buffer',
-        size: 192,
+        size: UNIFORM_BUFFER_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
@@ -159,7 +160,6 @@ export class WebGPURaymarcher {
       });
 
       this.isInitialized = true;
-      console.log('Event Horizon: WebGPU Compute Pipeline & Storage Texture setup completed successfully.');
       return true;
     } catch (err) {
       console.error('WebGPU: Initialization error:', err);
@@ -239,95 +239,9 @@ export class WebGPURaymarcher {
       });
     }
 
-    // Orbit Camera Math
-    const cosPitch = Math.cos(settings.camPitch);
-    const sinPitch = Math.sin(settings.camPitch);
-    const cosYaw = Math.cos(settings.camYaw);
-    const sinYaw = Math.sin(settings.camYaw);
-
-    const camPos = [
-      settings.camRadius * cosPitch * sinYaw,
-      settings.camRadius * cosPitch * cosYaw,
-      settings.camRadius * sinPitch
-    ];
-
-    const rawDir = [-camPos[0], -camPos[1], -camPos[2]];
-    const dirLen = Math.sqrt(rawDir[0]*rawDir[0] + rawDir[1]*rawDir[1] + rawDir[2]*rawDir[2]);
-    const camDir = [rawDir[0] / dirLen, rawDir[1] / dirLen, rawDir[2] / dirLen];
-
-    const rawRight = [camDir[1], -camDir[0], 0];
-    const rightLen = Math.sqrt(rawRight[0]*rawRight[0] + rawRight[1]*rawRight[1] + rawRight[2]*rawRight[2]);
-    const camRight = [rawRight[0] / rightLen, rawRight[1] / rightLen, rawRight[2] / rightLen];
-
-    const camUp = [
-      camRight[1] * camDir[2] - camRight[2] * camDir[1],
-      camRight[2] * camDir[0] - camRight[0] * camDir[2],
-      camRight[0] * camDir[1] - camRight[1] * camDir[0]
-    ];
-
-    const fovScale = 0.577;
-
-    // Pack Uniform Buffer (192 bytes)
-    const arrayBuffer = new ArrayBuffer(192);
-    const floatView = new Float32Array(arrayBuffer);
-    const uintView = new Uint32Array(arrayBuffer);
-
-    floatView[0] = this.canvas.width;
-    floatView[1] = this.canvas.height;
-    floatView[2] = performance.now() * 0.001;
-    floatView[3] = settings.mass;
-
-    floatView[4] = settings.spin;
-    uintView[5] = settings.relativity ? 1 : 0;
-    uintView[6] = settings.disk ? 1 : 0;
-    uintView[7] = settings.grid ? 1 : 0;
-
-    uintView[8] = settings.stars ? 1 : 0;
-    floatView[9] = settings.diskTemp;
-    uintView[10] = settings.steps;
-    floatView[11] = fovScale;
-
-    floatView[12] = settings.diskThickness;
-    floatView[13] = settings.diskDensity;
-    floatView[14] = settings.bloomIntensity;
-    floatView[15] = settings.diskSpeed;
-
-    uintView[16] = settings.showPhotonSphere ? 1 : 0;
-    uintView[17] = settings.shiftVisualizer ? 1 : 0;
-    uintView[18] = settings.splitActive ? 1 : 0;
-    floatView[19] = settings.splitX;
-
-    // camPos + spectrumMode
-    floatView[20] = camPos[0];
-    floatView[21] = camPos[1];
-    floatView[22] = camPos[2];
-    floatView[23] = settings.spectrumMode;
-
-    // camDir + csgMode
-    floatView[24] = camDir[0];
-    floatView[25] = camDir[1];
-    floatView[26] = camDir[2];
-    uintView[27] = settings.csgMode;
-
-    // camUp + csgBlend
-    floatView[28] = camUp[0];
-    floatView[29] = camUp[1];
-    floatView[30] = camUp[2];
-    floatView[31] = settings.csgBlend;
-
-    // camRight + softShadows
-    floatView[32] = camRight[0];
-    floatView[33] = camRight[1];
-    floatView[34] = camRight[2];
-    uintView[35] = settings.softShadows ? 1 : 0;
-
-    // shadowK, aoEnabled, aoIntensity, padding
-    floatView[36] = settings.shadowK;
-    uintView[37] = settings.aoEnabled ? 1 : 0;
-    floatView[38] = settings.aoIntensity;
-    floatView[39] = 0.0;
-
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, arrayBuffer);
+    const camera = orbitCamera(settings.camRadius, settings.camYaw, settings.camPitch);
+    const uniforms = packUniforms(settings, camera, this.canvas.width, this.canvas.height, performance.now() * 0.001);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     const commandEncoder = this.device.createCommandEncoder();
 

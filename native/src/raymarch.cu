@@ -1,6 +1,11 @@
 #include "raymarch.h"
+#include "physics.h"
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
 #include <device_launch_parameters.h>
 #include <math.h>
+
+namespace cg = cooperative_groups;
 
 #define PI 3.14159265359f
 
@@ -137,94 +142,46 @@ __device__ float3 blackbody(float Temp) {
     return make_float3(r, g, b);
 }
 
-// Quadrupolar Gravitational Wave metric strain acceleration
-__device__ inline float3 evaluate_gw_force(float3 pos, float3 vel, float time, float amp, float freq) {
-    if (amp <= 0.0001f) return make_float3(0.0f, 0.0f, 0.0f);
-    float phase = freq * time - 0.5f * pos.z;
-    float cos_p = cosf(phase);
-    float sin_p = sinf(phase);
-
-    float h_plus = amp * cos_p;
-    float h_cross = amp * sin_p;
-
-    float3 f;
-    f.x = 0.5f * freq * (-h_plus * vel.x + h_cross * vel.y) * sin_p;
-    f.y = 0.5f * freq * ( h_cross * vel.x + h_plus * vel.y) * sin_p;
-    f.z = -0.25f * freq * (h_plus * (vel.x * vel.x - vel.y * vel.y) + 2.0f * h_cross * vel.x * vel.y) * cos_p;
-    return f;
+__device__ inline float length3(float3 v) {
+    return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
-// Relativistic equations of motion in isotropic coordinates
-__device__ float3 compute_force(float3 x, float3 v, float mass, float spin, SimulationSettings settings) {
-    float x_len = sqrtf(x.x*x.x + x.y*x.y + x.z*x.z);
-    float r = fmaxf(x_len, mass * 0.5f + 0.001f);
-    float u = fminf(mass / (2.0f * r), 0.999f);
-    float one_plus_u = 1.0f + u;
-    float one_minus_u = 1.0f - u;
-    
-    float num = -mass * powf(one_plus_u, 5.0f) * (2.0f - u);
-    float den = powf(r, 3.0f) * powf(one_minus_u, 3.0f);
-    float3 f_total = mul(x, num / den);
-    
-    if (spin > 0.0f) {
-        float j = mass * spin;
-        float omega = 2.0f * j / (powf(r, 3.0f) * powf(one_plus_u, 6.0f));
-        float3 omega_vec = make_float3(0.0f, 0.0f, omega);
-        float3 f_fd = mul(cross_product(v, omega_vec), 2.0f);
-        f_total.x += f_fd.x;
-        f_total.y += f_fd.y;
-        f_total.z += f_fd.z;
-    }
-
-    if (settings.gw_enabled) {
-        float3 f_gw = evaluate_gw_force(x, v, settings.time, settings.gw_amplitude, settings.gw_frequency);
-        f_total.x += f_gw.x;
-        f_total.y += f_gw.y;
-        f_total.z += f_gw.z;
-    }
-    
-    return f_total;
+__device__ inline float isotropic_index(float r, float mass) {
+    float rr = fmaxf(r, mass * 0.5f + 0.001f);
+    float u = fminf(mass / (2.0f * rr), 0.999f);
+    return (1.0f + u) * (1.0f + u) * (1.0f + u) / (1.0f - u);
 }
 
-// Single step of Runge-Kutta 4th order integration
-__device__ void rk4_step(float3 &x, float3 &v, float h, float mass, float spin, SimulationSettings settings) {
-    float3 x1 = x;
-    float3 v1 = v;
-    float3 a1 = compute_force(x1, v1, mass, spin, settings);
-    
-    float3 x2 = make_float3(x.x + 0.5f * h * v1.x, x.y + 0.5f * h * v1.y, x.z + 0.5f * h * v1.z);
-    float3 v2 = make_float3(v.x + 0.5f * h * a1.x, v.y + 0.5f * h * a1.y, v.z + 0.5f * h * a1.z);
-    float3 a2 = compute_force(x2, v2, mass, spin, settings);
-    
-    float3 x3 = make_float3(x.x + 0.5f * h * v2.x, x.y + 0.5f * h * v2.y, x.z + 0.5f * h * v2.z);
-    float3 v3 = make_float3(v.x + 0.5f * h * a2.x, v.y + 0.5f * h * a2.y, v.z + 0.5f * h * a2.z);
-    float3 a3 = compute_force(x3, v3, mass, spin, settings);
-    
-    float3 x4 = make_float3(x.x + h * v3.x, x.y + h * v3.y, x.z + h * v3.z);
-    float3 v4 = make_float3(v.x + h * a3.x, v.y + h * a3.y, v.z + h * a3.z);
-    float3 a4 = compute_force(x4, v4, mass, spin, settings);
-    
-    x.x += (h / 6.0f) * (v1.x + 2.0f * v2.x + 2.0f * v3.x + v4.x);
-    x.y += (h / 6.0f) * (v1.y + 2.0f * v2.y + 2.0f * v3.y + v4.y);
-    x.z += (h / 6.0f) * (v1.z + 2.0f * v2.z + 2.0f * v3.z + v4.z);
-    
-    v.x += (h / 6.0f) * (a1.x + 2.0f * a2.x + 2.0f * a3.x + a4.x);
-    v.y += (h / 6.0f) * (a1.y + 2.0f * a2.y + 2.0f * a3.y + a4.y);
-    v.z += (h / 6.0f) * (a1.z + 2.0f * a2.z + 2.0f * a3.z + a4.z);
-    
-    // Normalization
-    float x_len = sqrtf(x.x*x.x + x.y*x.y + x.z*x.z);
-    float r = fmaxf(x_len, mass * 0.5f + 0.001f);
-    float u = fminf(mass / (2.0f * r), 0.999f);
-    float n_ref = powf(1.0f + u, 3.0f) / (1.0f - u);
-    float target_v_len = 1.0f / n_ref;
-    
-    float v_len = sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
+// Ray acceleration from physics.h: a = c_x x + c_v v.
+__device__ inline float3 compute_force(float3 x, float3 v, float mass) {
+    float r = fmaxf(length3(x), mass * 0.5f + 0.001f);
+    float c_x, c_v;
+    physics::ray_acceleration_coeffs(r, dot(x, v), mass, c_x, c_v);
+    return x * c_x + v * c_v;
+}
+
+// One RK4 step in coordinate time; |v| is then reset to the exact 1/n.
+__device__ void rk4_step(float3 &x, float3 &v, float h, float mass) {
+    float3 a1 = compute_force(x, v, mass);
+
+    float3 x2 = x + v * (0.5f * h);
+    float3 v2 = v + a1 * (0.5f * h);
+    float3 a2 = compute_force(x2, v2, mass);
+
+    float3 x3 = x + v2 * (0.5f * h);
+    float3 v3 = v + a2 * (0.5f * h);
+    float3 a3 = compute_force(x3, v3, mass);
+
+    float3 x4 = x + v3 * h;
+    float3 v4 = v + a3 * h;
+    float3 a4 = compute_force(x4, v4, mass);
+
+    x = x + (v + v2 * 2.0f + v3 * 2.0f + v4) * (h / 6.0f);
+    v = v + (a1 + a2 * 2.0f + a3 * 2.0f + a4) * (h / 6.0f);
+
+    float v_len = length3(v);
     if (v_len > 0.0f) {
-        float scale = target_v_len / v_len;
-        v.x *= scale;
-        v.y *= scale;
-        v.z *= scale;
+        v = v * (1.0f / (v_len * isotropic_index(length3(x), mass)));
     }
 }
 
@@ -234,23 +191,6 @@ __device__ inline float3 mix(float3 a, float3 b, float t) {
         a.y * (1.0f - t) + b.y * t,
         a.z * (1.0f - t) + b.z * t
     );
-}
-
-__device__ float3 get_color_from_spectrum(float Temp, int mode) {
-    if (mode == 0) {
-        return blackbody(Temp);
-    }
-    float t = fmaxf(0.0f, fminf(Temp / 12000.0f, 1.0f));
-    if (mode == 1) {
-        // Nebula Glow: violet-blue to magenta-pink
-        return mix(make_float3(0.18f, 0.0f, 0.5f), make_float3(1.0f, 0.0f, 0.55f), t) * 2.2f;
-    }
-    if (mode == 2) {
-        // Plasma Fire: dark red to bright yellow-orange to white
-        return mix(make_float3(0.55f, 0.05f, 0.0f), make_float3(1.0f, 0.88f, 0.15f), t) * 2.2f;
-    }
-    // Quantum Shift: cyan-blue to neon green
-    return mix(make_float3(0.0f, 0.35f, 0.8f), make_float3(0.0f, 1.0f, 0.35f), t) * 2.2f;
 }
 
 // Samples procedural accretion disk density and emission
@@ -271,7 +211,7 @@ __device__ void sample_accretion_disk(
         float density = settings.disk_density * vertical_density * radial_density;
         
         if (density > 0.001f) {
-            float omega = 1.0f / (powf(r_xy, 1.5f) + settings.spin);
+            float omega = sqrtf(settings.mass) / powf(r_xy, 1.5f);
             float phi = atan2f(x.y, x.x);
             float phi_rotated = phi - settings.time * settings.disk_speed * (0.8f / (powf(r_xy, 1.5f) + 0.1f));
             
@@ -314,7 +254,7 @@ __device__ void sample_accretion_disk(
             float g_total = g_doppler * g_grav;
             float T_obs = T * g_total;
             
-            float3 emission_color = get_color_from_spectrum(T_obs, settings.spectrum_mode);
+            float3 emission_color = blackbody(T_obs);
             if (settings.shift_visualizer != 0) {
                 if (g_total > 1.0f) {
                     float t = fmaxf(0.0f, fminf((g_total - 1.0f) * 1.5f, 1.0f));
@@ -323,11 +263,6 @@ __device__ void sample_accretion_disk(
                     float t = fmaxf(0.0f, fminf((1.0f - g_total) * 1.2f, 1.0f));
                     emission_color = mix(make_float3(0.1f, 0.7f, 0.1f), make_float3(1.0f, 0.1f, 0.0f), t) * 2.0f;
                 }
-            } else if (settings.polarization_mode != 0) {
-                // Synchrotron Linear Polarization Direction Vector E_pol = v_gas x B (where B = toroidal -y, x, 0)
-                float pol_angle = atan2f(v_gas.y, v_gas.x);
-                float pol_t = 0.5f + 0.5f * sinf(pol_angle * 2.0f);
-                emission_color = mix(make_float3(1.0f, 0.1f, 0.8f), make_float3(0.0f, 0.9f, 1.0f), pol_t) * 2.5f;
             }
             
             float dl = h;
@@ -342,105 +277,6 @@ __device__ void sample_accretion_disk(
             accum_trans *= trans;
         }
     }
-}
-
-// CSG Signed Distance Functions
-__device__ inline float sdSphere(float3 p, float r) {
-    return sqrtf(p.x*p.x + p.y*p.y + p.z*p.z) - r;
-}
-
-__device__ inline float sdTorus(float3 p, float2 t) {
-    float q_x = sqrtf(p.x*p.x + p.y*p.y) - t.x;
-    return sqrtf(q_x*q_x + p.z*p.z) - t.y;
-}
-
-__device__ inline float smin(float a, float b, float k) {
-    if (k <= 0.001f) return fminf(a, b);
-    float h = fmaxf(k - fabsf(a - b), 0.0f) / k;
-    return fminf(a, b) - h * h * k * 0.25f;
-}
-
-__device__ inline float smax(float a, float b, float k) {
-    if (k <= 0.001f) return fmaxf(a, b);
-    float h = fmaxf(k - fabsf(a - b), 0.0f) / k;
-    return fmaxf(a, b) + h * h * k * 0.25f;
-}
-
-// CSG Evaluation returning distance & material color
-__device__ float map_csg(float3 p, int csg_mode, float csg_blend, float mass, float3 &out_color) {
-    float d_main = sdSphere(p, 1.8f * mass);
-    out_color = make_float3(0.2f, 0.6f, 1.0f); // Default cyan
-    
-    if (csg_mode == 0) return d_main; // Disabled CSG
-    
-    float3 p_torus = make_float3(p.x, p.y, p.z - 0.4f * mass);
-    float d_torus = sdTorus(p_torus, make_float2(3.5f * mass, 0.4f * mass));
-    
-    float3 p_sph = make_float3(p.x - 3.2f * mass, p.y, p.z);
-    float d_sph = sdSphere(p_sph, 0.9f * mass);
-    float d_sub = fminf(d_torus, d_sph);
-    
-    if (csg_mode == 1) { // Union
-        if (d_sub < d_main) out_color = make_float3(1.0f, 0.4f, 0.2f);
-        return fminf(d_main, d_sub);
-    } else if (csg_mode == 2) { // Smooth Min
-        float d_res = smin(d_main, d_sub, csg_blend);
-        float h = fmaxf(0.0f, fminf((d_main - d_sub) / (csg_blend + 1e-4f) + 0.5f, 1.0f));
-        out_color = mix(make_float3(1.0f, 0.4f, 0.2f), make_float3(0.2f, 0.6f, 1.0f), h);
-        return d_res;
-    } else if (csg_mode == 3) { // Subtraction
-        float d_res = smax(d_main, -d_sub, csg_blend);
-        if (-d_sub > d_main) out_color = make_float3(0.9f, 0.1f, 0.3f);
-        return d_res;
-    } else if (csg_mode == 4) { // Intersection
-        float d_res = smax(d_main, d_sub, csg_blend);
-        out_color = make_float3(0.8f, 0.2f, 0.9f);
-        return d_res;
-    }
-    return d_main;
-}
-
-// Compute normal vector for CSG surface
-__device__ float3 calc_normal(float3 p, int csg_mode, float csg_blend, float mass) {
-    float eps = 0.002f;
-    float3 dummy;
-    float d = map_csg(p, csg_mode, csg_blend, mass, dummy);
-    float3 n = make_float3(
-        map_csg(make_float3(p.x + eps, p.y, p.z), csg_mode, csg_blend, mass, dummy) - d,
-        map_csg(make_float3(p.x, p.y + eps, p.z), csg_mode, csg_blend, mass, dummy) - d,
-        map_csg(make_float3(p.x, p.y, p.z + eps), csg_mode, csg_blend, mass, dummy) - d
-    );
-    float len = sqrtf(n.x*n.x + n.y*n.y + n.z*n.z);
-    return (len > 0.0001f) ? make_float3(n.x/len, n.y/len, n.z/len) : make_float3(0,0,1);
-}
-
-// Soft Shadows approximation via sphere tracing penumbra
-__device__ float evaluate_soft_shadow(float3 ro, float3 rd, int csg_mode, float csg_blend, float mass, float k) {
-    float res = 1.0f;
-    float t = 0.05f;
-    float3 dummy;
-    for (int i = 0; i < 20; ++i) {
-        float h = map_csg(ro + rd * t, csg_mode, csg_blend, mass, dummy);
-        if (h < 0.001f) return 0.0f;
-        res = fminf(res, k * h / t);
-        t += fmaxf(h, 0.04f);
-        if (t > 15.0f) break;
-    }
-    return fmaxf(0.0f, fminf(res, 1.0f));
-}
-
-// SDF Ambient Occlusion estimator
-__device__ float evaluate_ao(float3 p, float3 n, int csg_mode, float csg_blend, float mass, float intensity) {
-    float occ = 0.0f;
-    float sca = 1.0f;
-    float3 dummy;
-    for (int i = 0; i < 5; ++i) {
-        float h = 0.01f + 0.12f * (float)i;
-        float d = map_csg(p + n * h, csg_mode, csg_blend, mass, dummy);
-        occ += (h - d) * sca;
-        sca *= 0.75f;
-    }
-    return fmaxf(0.0f, 1.0f - intensity * occ);
 }
 
 // Heatmap false-color generator mapping normalized step counts [0.0, 1.0] to Turbo/Viridis palette
@@ -535,7 +371,6 @@ __global__ void raymarch_kernel(
                     float r_out = 9.5f * s_settings.mass;
                     if (r_xy >= r_in && r_xy <= r_out && s_settings.mass > 0.0f) {
                         float T = s_settings.disk_temp * powf(r_in / r_xy, 0.75f);
-                        float omega = 1.0f / (powf(r_xy, 1.5f) + s_settings.spin);
                         float phi = atan2f(hit_pos.y, hit_pos.x);
                         float phi_rotated = phi - s_settings.time * s_settings.disk_speed * (0.8f / (powf(r_xy, 1.5f) + 0.1f));
                         
@@ -548,7 +383,7 @@ __global__ void raymarch_kernel(
                         float n2 = tex2D<float4>(noiseTex, u2, v2).y * 0.5f;
                         float noise = (n1 + n2) / 1.5f;
                         
-                        float3 color = get_color_from_spectrum(T, s_settings.spectrum_mode) * (0.25f + 0.75f * noise);
+                        float3 color = blackbody(T) * (0.25f + 0.75f * noise);
                         if (s_settings.shift_visualizer != 0) {
                             color = make_float3(0.1f, 0.7f, 0.1f) * (0.25f + 0.75f * noise) * 2.0f;
                         }
@@ -588,95 +423,45 @@ __global__ void raymarch_kernel(
         return;
     }
     
-    // Geodesic & CSG integration loop
     bool captured = false;
-    bool active = true;
-    
-    // Spatial Bounding Volume Short-Circuit Acceleration
-    if (s_settings.spatial_accel != 0 && s_settings.mass > 0.0f) {
-        float r_bound = 25.0f * fmaxf(s_settings.mass, 0.1f);
-        float r_pos_orig = sqrtf(ray_pos.x * ray_pos.x + ray_pos.y * ray_pos.y + ray_pos.z * ray_pos.z);
-        if (r_pos_orig > r_bound) {
-            float v_len = sqrtf(ray_vel.x * ray_vel.x + ray_vel.y * ray_vel.y + ray_vel.z * ray_vel.z);
-            if (v_len > 0.0f) {
-                float3 dir = make_float3(ray_vel.x / v_len, ray_vel.y / v_len, ray_vel.z / v_len);
-                float dot_pos_dir = dot(ray_pos, dir);
-                // If ray points away from bounding sphere origin, it will never enter gravity zone
-                if (dot_pos_dir > 0.0f) {
-                    active = false;
-                } else {
-                    // Check closest approach distance d_perp^2 = |pos|^2 - (pos . dir)^2
-                    float d_perp2 = r_pos_orig * r_pos_orig - dot_pos_dir * dot_pos_dir;
-                    if (d_perp2 > r_bound * r_bound) {
-                        active = false;
-                    }
-                }
-            }
-        }
-    }
+    // Rays that get past both the scene and the camera are treated as escaped.
+    float r_escape = fmaxf(30.0f, r_cam + 1.0f);
+    float r_ps = s_settings.mass * (float)physics::kPhotonSphereIso;
 
     for (int step = 0; step < 300; ++step) {
-        if (!active || step >= s_settings.max_steps) break;
+        if (step >= s_settings.max_steps) break;
         thread_steps++;
-        
-        float r = sqrtf(ray_pos.x*ray_pos.x + ray_pos.y*ray_pos.y + ray_pos.z*ray_pos.z);
-        
-        if (r <= r_eh + 0.015f) {
-            captured = true;
-            active = false;
-            break;
-        }
-        
-        if (r > 30.0f) {
-            active = false;
-            break;
-        }
 
-        // CSG Surface Raymarching Check
-        if (s_settings.csg_mode != 0 && s_settings.mass > 0.0f) {
-            float3 obj_color;
-            float d_csg = map_csg(ray_pos, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass, obj_color);
-            if (d_csg < 0.01f) {
-                float3 norm = calc_normal(ray_pos, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass);
-                float3 light_dir = make_float3(0.577f, 0.577f, 0.577f);
-                float diff = fmaxf(0.15f, dot(norm, light_dir));
-                
-                float shadow = 1.0f;
-                if (s_settings.soft_shadows) {
-                    shadow = evaluate_soft_shadow(ray_pos + norm * 0.02f, light_dir, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass, s_settings.shadow_k);
-                }
-                
-                float ao = 1.0f;
-                if (s_settings.ao_enabled) {
-                    ao = evaluate_ao(ray_pos, norm, s_settings.csg_mode, s_settings.csg_blend, s_settings.mass, s_settings.ao_intensity);
-                }
-                
-                float3 surf_color = obj_color * (diff * shadow * ao);
-                accum_color.x += accum_trans * surf_color.x;
-                accum_color.y += accum_trans * surf_color.y;
-                accum_color.z += accum_trans * surf_color.z;
-                accum_trans *= 0.10f;
-                active = false;
-                break;
-            }
+        float r = length3(ray_pos);
+
+        // Inside the photon sphere (R < 3M) an ingoing ray can only fall in, so
+        // it is captured without integrating the stiff region near the horizon.
+        if (r <= r_eh + 0.015f || (r < r_ps && dot(ray_pos, ray_vel) < 0.0f)) {
+            captured = true;
+            break;
         }
-        
+        if (r > r_escape) break;
+
+        // Spatial step length: small near the hole, growing quadratically
+        // beyond r = 6M where bending is weak.
         float r_dist = fmaxf(0.0f, r - r_eh);
-        float h_base = 0.05f + 0.35f * fminf(r_dist / 4.0f, 1.0f);
-        if (r > 6.0f * fmaxf(s_settings.mass, 0.1f)) {
-            float extra_dist = r - 6.0f * fmaxf(s_settings.mass, 0.1f);
-            h_base += 0.08f * extra_dist * extra_dist;
+        float ds = 0.05f + 0.35f * fminf(r_dist / 4.0f, 1.0f);
+        float r_far = 6.0f * fmaxf(s_settings.mass, 0.1f);
+        if (r > r_far) {
+            ds += 0.08f * (r - r_far) * (r - r_far);
         }
-        float h_step = fminf(h_base, 1.25f);
+        ds = fminf(ds, 1.25f);
+        // The parameter is coordinate time and light moves at 1/n, so a step
+        // of ds in space takes n * ds in time.
+        float h_step = ds * isotropic_index(r, s_settings.mass);
         float3 prev_pos = ray_pos;
-        
-        rk4_step(ray_pos, ray_vel, h_step, s_settings.mass, s_settings.spin, s_settings);
-        
+
+        rk4_step(ray_pos, ray_vel, h_step, s_settings.mass);
+
         // Photon sphere boundary visualization crossing
         if (s_settings.show_photon_sphere != 0 && s_settings.mass > 0.0f) {
-            float r_prev = sqrtf(prev_pos.x*prev_pos.x + prev_pos.y*prev_pos.y + prev_pos.z*prev_pos.z);
-            float r_curr = r;
-            float r_ps = 3.0f * s_settings.mass;
+            float r_prev = length3(prev_pos);
+            float r_curr = length3(ray_pos);
             if ((r_prev > r_ps && r_curr <= r_ps) || (r_prev < r_ps && r_curr >= r_ps)) {
                 accum_color.x += accum_trans * 0.0f * 0.22f;
                 accum_color.y += accum_trans * 1.0f * 0.22f;
@@ -688,7 +473,7 @@ __global__ void raymarch_kernel(
         if (s_settings.disk != 0 && s_settings.mass > 0.0f) {
             for (int i = 0; i < 3; ++i) {
                 float r_orbit = 4.2f + (float)i * 2.0f;
-                float omega = 1.0f / (powf(r_orbit, 1.5f) + s_settings.spin);
+                float omega = sqrtf(s_settings.mass) / powf(r_orbit, 1.5f);
                 float phi_hot = s_settings.time * omega * s_settings.disk_speed + (float)i * 2.0944f;
                 float3 p_orbit = make_float3(cosf(phi_hot) * r_orbit, sinf(phi_hot) * r_orbit, 0.0f);
                 
@@ -755,7 +540,7 @@ __global__ void raymarch_kernel(
                 );
                 
                 sample_accretion_disk(
-                    cross_pos, ray_vel, h_step,
+                    cross_pos, ray_vel, ds,
                     s_settings,
                     noiseTex,
                     accum_color, accum_trans
@@ -765,27 +550,17 @@ __global__ void raymarch_kernel(
         
         if (accum_trans < 0.01f) {
             accum_trans = 0.0f;
-            active = false;
-            break;
-        }
-
-        // 2. CUDA Warp-level optimization: Early warp exit check
-        unsigned int active_mask = __activemask();
-        if (!__any_sync(active_mask, active)) {
             break;
         }
     }
-    
-    // 3. CUDA Warp Reduction for performance metrics step counter
+
+    // Sum step counts across the active threads of the warp, then do one
+    // atomic per warp instead of one per pixel.
     if (d_step_counter != nullptr) {
-        unsigned int active_mask = __activemask();
-        unsigned int warp_steps = thread_steps;
-        for (int offset = 16; offset > 0; offset /= 2) {
-            warp_steps += __shfl_down_sync(active_mask, warp_steps, offset);
-        }
-        int lane = (threadIdx.x + threadIdx.y * blockDim.x) % 32;
-        if (lane == 0 && warp_steps > 0) {
-            atomicAdd(d_step_counter, (unsigned long long)warp_steps);
+        cg::coalesced_group warp = cg::coalesced_threads();
+        unsigned long long warp_steps = cg::reduce(warp, (unsigned long long)thread_steps, cg::plus<unsigned long long>());
+        if (warp.thread_rank() == 0) {
+            atomicAdd(d_step_counter, warp_steps);
         }
     }
 
@@ -836,8 +611,8 @@ __global__ void raymarch_kernel(
     d_output[y_idx * w + x_idx] = make_float4(color_out.x, color_out.y, color_out.z, 1.0f);
 }
 
-// Kernel launcher with dynamic CUDA thread block tuning
-extern "C" void run_raymarch_kernel(
+// Kernel launcher with configurable thread block shape
+extern "C" cudaError_t run_raymarch_kernel(
     float4 *d_output,
     unsigned long long *d_step_counter,
     SimulationSettings settings,
@@ -851,38 +626,5 @@ extern "C" void run_raymarch_kernel(
         ((int)settings.resolution.y + block.y - 1) / block.y
     );
     raymarch_kernel<<<grid, block>>>(d_output, d_step_counter, settings, noiseTex);
-    cudaDeviceSynchronize();
-}
-
-// Temporal Anti-Aliasing (TAA) reprojection blending kernel
-__global__ void taa_blend_kernel(float4* current, float4* history, int width, int height, float alpha) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    if (x >= width || y >= height) return;
-
-    int idx = y * width + x;
-    float4 currColor = current[idx];
-    float4 histColor = history[idx];
-
-    float4 blended;
-    blended.x = histColor.x * (1.0f - alpha) + currColor.x * alpha;
-    blended.y = histColor.y * (1.0f - alpha) + currColor.y * alpha;
-    blended.z = histColor.z * (1.0f - alpha) + currColor.z * alpha;
-    blended.w = 1.0f;
-
-    current[idx] = blended;
-    history[idx] = blended;
-}
-
-extern "C" void apply_temporal_reprojection(
-    float4 *d_current,
-    float4 *d_history,
-    int width,
-    int height,
-    float blend_alpha
-) {
-    dim3 block(32, 8);
-    dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
-    taa_blend_kernel<<<grid, block>>>(d_current, d_history, width, height, blend_alpha);
-    cudaDeviceSynchronize();
+    return cudaGetLastError();
 }
