@@ -1,104 +1,121 @@
 # Raymarcher
 
-Real-time ray tracing of light around a black hole, on the GPU, with the physics checked against known results.
+A field atlas of curved spacetime. Raymarcher compiles a spacetime's metric into a GPU ray tracer and renders what light does around it, in real time, in the browser. The physics is checked against published results.
 
-![A Schwarzschild black hole with a lensed accretion disk, rendered in the browser with WebGPU](docs/web-render.jpg)
+![A Kerr black hole rendered as an atlas plate, with the CPU-traced shadow edge and disk inner edge marked in red](docs/playground-kerr.jpg)
 
-Every pixel traces one light ray backwards from the camera through curved spacetime. Rays that pass close to the black hole bend, loop around it, or fall in. That is what produces the dark shadow, the thin bright ring at its edge, and the image of the disk's far side wrapped over the top.
+Every pixel traces one light ray backwards from the camera through curved spacetime. Rays that pass close to a black hole bend, loop around it or fall in. That is what produces the dark shadow, the thin photon ring at its edge, and the image of the disk's far side wrapped over the top.
 
-There are two renderers that share the same equations:
+## How it works
 
-- **Web** (`web/`): TypeScript and WebGPU compute shaders. Runs in the browser.
-- **Native** (`native/`): CUDA C++ with a GLFW/ImGui viewer, for NVIDIA GPUs.
-
-## Status
-
-This is the starting point of a larger project: a compiler that turns any spacetime metric into a GPU ray tracer, plus an interactive essay on how gravity bends light. Today it renders one spacetime, a non-rotating (Schwarzschild) black hole.
-
-| Area | State |
-| --- | --- |
-| Schwarzschild light bending | Implemented and tested (see [Verification](#verification)) |
-| Accretion disk | Artistic volumetric model, not a physical disk solution |
-| Doppler and gravitational shift | Approximate: flat-space Doppler times the static redshift |
-| Spinning (Kerr) black holes | Not yet. Planned through the spacetime compiler |
-| Native benchmark numbers | Not published yet; run `--benchmark` on your own GPU |
-
-## The physics
-
-Units are geometric (G = c = 1) and M is the black hole's mass. The renderer uses isotropic coordinates, where light in Schwarzschild spacetime behaves like light in a medium with refractive index
+You describe a spacetime in a small metric language:
 
 ```
-n(r) = (1 + u)^3 / (1 - u),   u = M / 2r
+spacetime "Schwarzschild"
+coords t x y z
+param M = 1 in [0.2, 3] "Mass"
+let r = sqrt(x^2 + y^2 + z^2)
+let f = 2*M / r
+g t t = -1 + f
+g t x = -f*x/r
+...
+horizon r < 2*M*1.01
 ```
 
-With coordinate time as the parameter, so that the ray speed is |v| = 1/n, the ray equation is
+The compiler (`compiler/`) does the rest:
+
+1. **Parse** the file into an expression graph. Identical subexpressions are stored once (hash-consing), and constants fold as the graph is built.
+2. **Differentiate** every metric component symbolically with respect to every coordinate.
+3. **Analyse** which coordinates the metric does not depend on. Each gives a conserved momentum.
+4. **Emit** straight-line code to two backends:
+   - **WGSL**, for the WebGPU tracer;
+   - **JavaScript** (double precision), for camera setup, the CPU cross-check and the tests.
+
+The generated Kerr module is about 350 lines of WGSL.
+
+Rays follow Hamilton's equations, which need only the metric g and its first derivatives. The inverse metric is computed numerically on the GPU.
 
 ```
-dv/dt = ∇n / n^3  -  2 v (∇n · v) / n
+dx^μ/dλ = g^{μν} p_ν          dp_μ/dλ = ½ (∂_μ g_{αβ}) k^α k^β,   k = g⁻¹ p
 ```
 
-Rays are integrated with 4th-order Runge-Kutta. The step length is fixed in space rather than in time, because light slows to 1/n near the horizon. After each step |v| is reset to exactly 1/n. A ray that is inside the photon sphere (areal radius R < 3M) and moving inward is marked as captured, because in Schwarzschild spacetime it cannot escape.
+The camera is a static observer whose orthonormal frame is built from the local metric. Disk colours come from the exact redshift g = (p·u_camera) / (p·u_gas) for gas on circular orbits. Brightness scales as g⁴.
 
-The equations live in three places that must agree:
+Built-in spacetimes (`metrics/`):
+- **Schwarzschild**: a non-rotating black hole.
+- **Kerr**: a spinning black hole, with spin a/M up to 0.99.
+- **Flat space**: for comparison.
 
-- `web/src/shaders/raymarch.wgsl.ts` (WebGPU, f32)
-- `native/src/physics.h` (CUDA kernel and CPU tests)
-- `web/src/physics.ts` (double-precision reference used by the web tests)
+The black holes use outgoing Kerr-Schild coordinates. Rays traced backwards from a camera end on the past horizon, and these coordinates make that horizon regular.
+
+## The playground
+
+The page is laid out as one chart plate of a field star atlas:
+- The render sits inside a ruled neatline. The margins carry live azimuth and elevation scales for the view.
+- The key along the foot holds every control. Parameter sliders are generated from the metric file.
+- The red marks are measured, not drawn. A Web Worker traces the shadow edge on the CPU, in double precision, with the same compiled metric, and draws it over the GPU image. It also locates the lensed inner edge of the disk.
+
+For Schwarzschild the traced edge agrees with the analytic √27 M prediction to within 0.01°, which makes the overlay a live cross-check between the two backends.
+
+![The Schwarzschild plate with the sky grid: nested Einstein rings and the disk wrapped over the shadow](docs/playground-schwarzschild-grid.jpg)
 
 ## Verification
 
-The test suites check the shared equations against results from the literature, not just against themselves:
-
 | Check | Expected | Where |
 | --- | --- | --- |
-| Capture threshold | Rays with impact parameter b < √27 M fall in; b > √27 M escape | `physics.test.ts`, `native/tests` |
-| Weak-field deflection at b = 1000 M | 4M/b + 15πM²/4b², within 0.1% | `physics.test.ts`, `native/tests` |
-| Horizon and photon sphere radii | R = 2M and R = 3M under the isotropic ↔ areal conversion | both |
-| ∇n | Matches a finite difference of n(r) | both |
-| f32 vs f64 | The kernel's float version of the ray equation agrees with the double version | `native/tests` |
-| WGSL uniform layout | TypeScript buffer offsets match the WGSL struct under WGSL alignment rules | `uniforms.test.ts` |
+| Symbolic derivatives | Match finite differences for every catalog metric | `compiler/test/compiler.test.ts` |
+| Generated code | Agrees with direct evaluation of the expression graph | `compiler/test/compiler.test.ts` |
+| Metric sanity | Symmetric, invertible (g g⁻¹ = I), Lorentzian | `compiler/test/compiler.test.ts` |
+| Capture threshold | b < √27 M falls in, b > √27 M escapes | `compiler/test/physics.test.ts`, `native/tests` |
+| Weak-field deflection | 4M/b + 15πM²/4b², within 0.1% | `compiler/test/physics.test.ts`, `native/tests` |
+| Kerr shadow | Bardeen's (1973) analytic outline at a = 0.9, ±2% | `compiler/test/physics.test.ts` |
+| Kerr ISCO | 6M at a = 0, 2.32M at a = 0.9 (Bardeen, Press & Teukolsky 1972) | `compiler/test/physics.test.ts` |
+| Conservation | Energy and L_z conserved along rays in Kerr | `compiler/test/physics.test.ts` |
+| Null constraint | H = ½ g^{μν} p_μ p_ν stays below 10⁻⁸ | `compiler/test/physics.test.ts` |
+| Parser errors | Reported with line and column | `compiler/test/parser.test.ts` |
+| GPU uniform layout | TypeScript offsets match the WGSL struct | `web/src/uniforms.test.ts` |
 
-In the browser at default settings, the shadow's measured radius matches the predicted angular size, sin α = √27 M √(1 − 2M/R) / R, to within a few percent.
+The Kerr shadow test is not trivially satisfiable: a mirrored outline (prograde and retrograde swapped) fails it.
 
 ## Running it
 
-**Web** (needs a browser with WebGPU: recent Chrome or Edge, or Safari 26+):
+Needs a browser with WebGPU (recent Chrome or Edge, or Safari 26+):
 
 ```bash
 npm install
 npm run dev
 ```
 
-**Tests:**
-
 ```bash
 npm test
 ```
 
-```bash
-cmake -S native -B native/build -DRAYMARCHER_BUILD_VIEWER=OFF && cmake --build native/build && ctest --test-dir native/build
-```
-
-**Native viewer** (needs the CUDA Toolkit 11+, CMake 3.18+ and an NVIDIA GPU):
+**Native viewer** (`native/`, CUDA 11+, CMake 3.18+, an NVIDIA GPU): the CUDA renderer still uses the Phase 0 isotropic Schwarzschild kernel. It moves onto the compiler in Phase 2.
 
 ```bash
 cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
 cmake --build native/build --config Release
 ```
 
-Then run `native/build/raymarcher` (`native/build/Release/raymarcher.exe` on Windows). Add `--benchmark` to time the kernel at 1080p, 1440p and 4K across several thread-block shapes. It prints frame time, rays per second and integration steps per ray, and writes `benchmark_report.json` with the GPU name and settings.
+Run `native/build/raymarcher` (`native/build/Release/raymarcher.exe` on Windows). Add `--benchmark` to time the kernel at 1080p, 1440p and 4K. CPU-only physics tests:
+
+```bash
+cmake -S native -B native/build-tests -DRAYMARCHER_BUILD_VIEWER=OFF && cmake --build native/build-tests && ctest --test-dir native/build-tests
+```
 
 ## Repository layout
 
 ```
-web/       WebGPU renderer: index.html, TypeScript, WGSL shader, tests
-native/    CUDA renderer: src/ (kernel, viewer, shared physics.h), tests/
-docs/      Images for this README
+compiler/   metric language: parser, expression graph, derivatives, WGSL + JS backends, geodesic integrator, tests
+metrics/    the spacetime catalog (.st files)
+web/        WebGPU playground: tracer shader, viewer, atlas UI, CPU shadow worker
+native/     CUDA renderer and its CPU physics tests
+docs/       images for this README
 ```
 
 ## Known limitations
 
-- The disk's density, temperature profile and edges are chosen for looks, not taken from an accretion model.
-- The disk's Doppler factor uses the gas velocity in flat-space form, so brightness asymmetry is qualitative.
-- Everything on the GPU is single precision.
-- Only Schwarzschild spacetime is supported.
+- **Disk:** an optically thick thin disk with a Shakura–Sunyaev-shaped temperature profile. The swirl texture and colour grading are illustrative.
+- **Precision:** the GPU works in single precision. The CPU trace and the tests use double.
+- **Performance:** each pixel integrates a full geodesic. Integrated laptop GPUs manage a few frames per second at full resolution, and the view drops to half resolution while you move.
+- **CUDA:** the CUDA backend and the user-editable metrics are Phase 2.

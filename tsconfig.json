@@ -18,7 +18,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "types": ["@webgpu/types"]
+    "types": ["@webgpu/types", "vite/client"]
   },
-  "include": ["web/src", "vite.config.ts"]
+  "include": ["web/src", "compiler", "metrics", "vite.config.ts"]
 }

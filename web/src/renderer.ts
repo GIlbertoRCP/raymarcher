@@ -1,281 +1,139 @@
-import { orbitCamera } from './camera.ts';
-import type { Settings } from './settings.ts';
-import { raymarchWGSL } from './shaders/raymarch.wgsl.ts';
-import { packUniforms, UNIFORM_BUFFER_SIZE } from './uniforms.ts';
+import { buildTracerShader } from './shaders/tracer.wgsl.ts';
+import { UNIFORM_BUFFER_SIZE } from './uniforms.ts';
 
+export class ShaderCompileError extends Error {}
+
+/** WebGPU host: a compute pass that traces rays, then a composite pass to the canvas. */
 export class Renderer {
-  private canvas: HTMLCanvasElement;
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
-  
-  // Pipeline 1: Compute Shader Raymarching Physics
-  private computePipeline!: GPUComputePipeline;
+  private format!: GPUTextureFormat;
   private uniformBuffer!: GPUBuffer;
-  private noiseTexture!: GPUTexture;
-  private noiseSampler!: GPUSampler;
-  private bindGroup!: GPUBindGroup;
-  
-  // Pipeline 2: Screen Compositing & Multi-Tap Bloom
-  private compositePipeline!: GPURenderPipeline;
-  private sceneSampler!: GPUSampler;
-  private hdrTexture: GPUTexture | null = null;
-  private hdrTextureView!: GPUTextureView;
-  private compositeBindGroup!: GPUBindGroup;
-  private uniformBindGroup!: GPUBindGroup;
+  private sampler!: GPUSampler;
 
-  private presentationFormat!: GPUTextureFormat;
-  private isInitialized = false;
+  private computePipeline: GPUComputePipeline | null = null;
+  private compositePipeline: GPURenderPipeline | null = null;
+  private computeBindGroup: GPUBindGroup | null = null;
+  private compositeUniforms: GPUBindGroup | null = null;
+  private compositeScene: GPUBindGroup | null = null;
+  private target: GPUTexture | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+  constructor(private readonly canvas: HTMLCanvasElement) {}
+
+  async init(): Promise<boolean> {
+    if (!navigator.gpu) return false;
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) return false;
+    this.device = await adapter.requestDevice();
+    const context = this.canvas.getContext('webgpu');
+    if (!context) return false;
+    this.context = context;
+    this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.context.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
+    this.uniformBuffer = this.device.createBuffer({
+      label: 'Tracer uniforms',
+      size: UNIFORM_BUFFER_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.sampler = this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    return true;
   }
 
-  public async init(): Promise<boolean> {
-    try {
-      if (!navigator.gpu) {
-        console.warn('WebGPU: navigator.gpu is not available.');
-        return false;
-      }
-      
-      const adapter = await navigator.gpu.requestAdapter();
-      if (!adapter) {
-        console.warn('WebGPU: No GPU adapter found.');
-        return false;
-      }
-
-      const device = await adapter.requestDevice();
-      if (!device) {
-        console.warn('WebGPU: Could not request GPU device.');
-        return false;
-      }
-      this.device = device;
-
-      const context = this.canvas.getContext('webgpu');
-      if (!context) {
-        console.warn('WebGPU: Could not get WebGPU context from canvas.');
-        return false;
-      }
-      this.context = context;
-
-      this.presentationFormat = navigator.gpu.getPreferredCanvasFormat();
-      this.context.configure({
-        device: this.device,
-        format: this.presentationFormat,
-        alphaMode: 'opaque',
-      });
-
-      // Compile compute and compositing WGSL shader module
-      const shaderModule = this.device.createShaderModule({
-        label: 'Compute Raymarching & Compositing WGSL Shaders',
-        code: raymarchWGSL,
-      });
-
-      this.uniformBuffer = this.device.createBuffer({
-        label: 'Raymarcher Uniform Buffer',
-        size: UNIFORM_BUFFER_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
-
-      // Create noise texture for accretion disk turbulence (256x256 RGBA)
-      const size = 256;
-      this.noiseTexture = this.device.createTexture({
-        label: 'Accretion Disk Noise Texture',
-        size: [size, size, 1],
-        format: 'rgba8unorm',
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      });
-
-      const noiseData = new Uint8Array(size * size * 4);
-      for (let i = 0; i < size * size * 4; i += 4) {
-        noiseData[i]     = Math.floor(Math.random() * 255);
-        noiseData[i + 1] = Math.floor(Math.random() * 255);
-        noiseData[i + 2] = Math.floor(Math.random() * 255);
-        noiseData[i + 3] = 255;
-      }
-
-      this.device.queue.writeTexture(
-        { texture: this.noiseTexture },
-        noiseData,
-        { bytesPerRow: size * 4, rowsPerImage: size },
-        [size, size, 1]
-      );
-
-      this.noiseSampler = this.device.createSampler({
-        label: 'Noise Sampler',
-        addressModeU: 'repeat',
-        addressModeV: 'repeat',
-        magFilter: 'linear',
-        minFilter: 'linear',
-      });
-
-      this.sceneSampler = this.device.createSampler({
-        label: 'Scene Sampler',
-        magFilter: 'linear',
-        minFilter: 'linear',
-      });
-
-      // Create Compute Pipeline for Raymarching Physics
-      this.computePipeline = this.device.createComputePipeline({
-        label: 'WebGPU Raymarching Compute Pipeline',
-        layout: 'auto',
-        compute: {
-          module: shaderModule,
-          entryPoint: 'cs_main',
-        },
-      });
-
-      // Create Composite Render Pipeline for Screen Presentation & Bloom
-      this.compositePipeline = this.device.createRenderPipeline({
-        label: 'Screen Compositing Pipeline',
-        layout: 'auto',
-        vertex: {
-          module: shaderModule,
-          entryPoint: 'vs_composite',
-        },
-        fragment: {
-          module: shaderModule,
-          entryPoint: 'fs_composite',
-          targets: [
-            {
-              format: this.presentationFormat,
-            },
-          ],
-        },
-        primitive: {
-          topology: 'triangle-list',
-        },
-      });
-
-      this.uniformBindGroup = this.device.createBindGroup({
-        label: 'Uniform Only Bind Group',
-        layout: this.compositePipeline.getBindGroupLayout(0),
-        entries: [
-          {
-            binding: 0,
-            resource: {
-              buffer: this.uniformBuffer,
-            },
-          },
-        ],
-      });
-
-      this.isInitialized = true;
-      return true;
-    } catch (err) {
-      console.error('WebGPU: Initialization error:', err);
-      return false;
+  /** Compiles the tracer for a metric module from the WGSL backend. */
+  async setMetric(metricWgsl: string, label: string): Promise<void> {
+    const module = this.device.createShaderModule({ label: `Tracer (${label})`, code: buildTracerShader(metricWgsl) });
+    const info = await module.getCompilationInfo();
+    const errors = info.messages.filter(m => m.type === 'error');
+    if (errors.length) {
+      throw new ShaderCompileError(errors.map(e => `${e.lineNum}:${e.linePos} ${e.message}`).join('\n'));
     }
+    const [computePipeline, compositePipeline] = await Promise.all([
+      this.device.createComputePipelineAsync({
+        label: `Trace rays (${label})`,
+        layout: 'auto',
+        compute: { module, entryPoint: 'cs_main' },
+      }),
+      this.device.createRenderPipelineAsync({
+        label: 'Composite',
+        layout: 'auto',
+        vertex: { module, entryPoint: 'vs_composite' },
+        fragment: { module, entryPoint: 'fs_composite', targets: [{ format: this.format }] },
+        primitive: { topology: 'triangle-list' },
+      }),
+    ]);
+    this.computePipeline = computePipeline;
+    this.compositePipeline = compositePipeline;
+    this.compositeUniforms = this.device.createBindGroup({
+      layout: compositePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
+    });
+    this.dropTarget(); // rebuild bind groups against the new pipelines
   }
 
-  public render(settings: Settings) {
-    if (!this.isInitialized) return;
-
-    const scale = Math.max(0.25, Math.min(1.0, settings.renderScale || 0.5));
-    const displayWidth = Math.max(256, Math.floor(this.canvas.clientWidth * scale));
-    const displayHeight = Math.max(256, Math.floor(this.canvas.clientHeight * scale));
-    let resized = false;
-    if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight || !this.hdrTexture) {
-      this.canvas.width = displayWidth;
-      this.canvas.height = displayHeight;
-      this.context.configure({
-        device: this.device,
-        format: this.presentationFormat,
-        alphaMode: 'opaque',
-      });
-      resized = true;
+  /** Internal render size for a given resolution scale. */
+  resize(scale: number): { width: number; height: number } {
+    // CSS pixels, not device pixels: each pixel costs a full geodesic.
+    const width = Math.max(64, Math.floor(this.canvas.clientWidth * scale));
+    const height = Math.max(64, Math.floor(this.canvas.clientHeight * scale));
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+      this.dropTarget();
     }
+    return { width, height };
+  }
 
-    if (resized || !this.hdrTexture) {
-      if (this.hdrTexture) {
-        this.hdrTexture.destroy();
-      }
-      // Storage texture for compute shader raymarching output
-      this.hdrTexture = this.device.createTexture({
-        label: 'HDR Storage Raymarch Texture Target',
-        size: [this.canvas.width, this.canvas.height, 1],
+  private dropTarget() {
+    this.target?.destroy();
+    this.target = null;
+  }
+
+  render(uniforms: ArrayBuffer): void {
+    if (!this.computePipeline || !this.compositePipeline || !this.compositeUniforms) return;
+    const { width, height } = this.canvas;
+
+    if (!this.target) {
+      this.target = this.device.createTexture({
+        label: 'HDR ray-traced image',
+        size: [width, height],
         format: 'rgba16float',
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       });
-      this.hdrTextureView = this.hdrTexture.createView();
-
-      // Compute pipeline bind group
-      this.bindGroup = this.device.createBindGroup({
-        label: 'Raymarcher Compute Bind Group',
+      const view = this.target.createView();
+      this.computeBindGroup = this.device.createBindGroup({
         layout: this.computePipeline.getBindGroupLayout(0),
         entries: [
-          {
-            binding: 0,
-            resource: { buffer: this.uniformBuffer },
-          },
-          {
-            binding: 1,
-            resource: this.noiseTexture.createView(),
-          },
-          {
-            binding: 2,
-            resource: this.noiseSampler,
-          },
-          {
-            binding: 3,
-            resource: this.hdrTextureView,
-          },
+          { binding: 0, resource: { buffer: this.uniformBuffer } },
+          { binding: 1, resource: view },
         ],
       });
-
-      // Composite pass bind group
-      this.compositeBindGroup = this.device.createBindGroup({
-        label: 'Composite Pass Bind Group',
+      this.compositeScene = this.device.createBindGroup({
         layout: this.compositePipeline.getBindGroupLayout(1),
         entries: [
-          {
-            binding: 0,
-            resource: this.hdrTextureView,
-          },
-          {
-            binding: 1,
-            resource: this.sceneSampler,
-          },
+          { binding: 0, resource: view },
+          { binding: 1, resource: this.sampler },
         ],
       });
     }
 
-    const camera = orbitCamera(settings.camRadius, settings.camYaw, settings.camPitch);
-    const uniforms = packUniforms(settings, camera, this.canvas.width, this.canvas.height, performance.now() * 0.001);
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+    const encoder = this.device.createCommandEncoder();
 
-    const commandEncoder = this.device.createCommandEncoder();
+    const trace = encoder.beginComputePass({ label: 'Trace rays' });
+    trace.setPipeline(this.computePipeline);
+    trace.setBindGroup(0, this.computeBindGroup!);
+    trace.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+    trace.end();
 
-    // PASS 1: Dispatch Compute Shader Raymarching
-    const computePass = commandEncoder.beginComputePass({ label: 'Raymarching Compute Pass' });
-    computePass.setPipeline(this.computePipeline);
-    computePass.setBindGroup(0, this.bindGroup);
-    computePass.dispatchWorkgroups(
-      Math.ceil(this.canvas.width / 16),
-      Math.ceil(this.canvas.height / 16),
-      1
-    );
-    computePass.end();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }],
+    });
+    pass.setPipeline(this.compositePipeline);
+    pass.setBindGroup(0, this.compositeUniforms);
+    pass.setBindGroup(1, this.compositeScene!);
+    pass.draw(3);
+    pass.end();
 
-    // PASS 2: Composite & Bloom to screen swapchain
-    const canvasTextureView = this.context.getCurrentTexture().createView();
-    const compositePassDescriptor: GPURenderPassDescriptor = {
-      colorAttachments: [
-        {
-          view: canvasTextureView,
-          clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-    };
-
-    const compEncoder = commandEncoder.beginRenderPass(compositePassDescriptor);
-    compEncoder.setPipeline(this.compositePipeline);
-    compEncoder.setBindGroup(0, this.uniformBindGroup);
-    compEncoder.setBindGroup(1, this.compositeBindGroup);
-    compEncoder.draw(3);
-    compEncoder.end();
-
-    this.device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([encoder.finish()]);
   }
 }
