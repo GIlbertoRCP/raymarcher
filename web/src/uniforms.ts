@@ -1,75 +1,80 @@
-import type { CameraBasis } from './camera.ts';
+import type { Vec4 } from '../../compiler/src/index.ts';
 import type { Settings } from './settings.ts';
 
-// Byte layout of the WGSL `Uniforms` struct in shaders/raymarch.wgsl.ts.
-// vec3 fields are 16-byte aligned, so a scalar is packed into each one's
-// trailing 4 bytes. Keep the two in sync; uniforms.test.ts checks this file.
+// Byte layout of the WGSL `Uniforms` struct in shaders/tracer.wgsl.ts.
+// uniforms.test.ts checks that the two agree.
 export const UNIFORM_OFFSETS = {
   resolution: 0,
   time: 8,
-  mass: 12,
-  relativity: 16,
-  disk: 20,
-  grid: 24,
-  stars: 28,
-  diskTemp: 32,
-  maxSteps: 36,
-  fovScale: 40,
-  diskThickness: 44,
-  diskDensity: 48,
-  bloomIntensity: 52,
-  diskSpeed: 56,
-  showPhotonSphere: 60,
-  camPos: 64,
-  shiftVisualizer: 76,
-  camDir: 80,
-  splitActive: 92,
-  camUp: 96,
-  splitX: 108,
-  camRight: 112,
+  maxSteps: 12,
+  camPos: 16,
+  f0: 32,
+  f1: 48,
+  f2: 64,
+  f3: 80,
+  params: 96,
+  fovScale: 128,
+  stepFraction: 132,
+  escapeRadius: 136,
+  exposure: 140,
+  diskTemp: 144,
+  flags: 148,
+  lengthScale: 152,
 } as const;
 
-export const UNIFORM_BUFFER_SIZE = 128;
+export const UNIFORM_BUFFER_SIZE = 160;
 
-export const FOV_SCALE = 0.577; // tan(30 deg): 60 degree vertical field of view
+export const FLAGS = { disk: 1, grid: 2, redshift: 4, stars: 8 } as const;
 
-export function packUniforms(
-  settings: Settings,
-  camera: CameraBasis,
-  width: number,
-  height: number,
-  timeSeconds: number,
-): ArrayBuffer {
+/**
+ * tan of half the vertical field of view. The field-of-view setting applies
+ * to the narrower side, so portrait screens are not cropped to a sliver.
+ */
+export function verticalTan(fovDegrees: number, aspect: number): number {
+  return Math.tan((fovDegrees * Math.PI) / 360) / Math.min(1, aspect);
+}
+
+export interface FrameInputs {
+  width: number;
+  height: number;
+  timeSeconds: number;
+  camPos: Vec4;
+  /** Covariant camera frame: 4-velocity, right, up, forward. */
+  frame: Vec4[];
+  params: readonly number[];
+  lengthScale: number;
+  escapeRadius: number;
+}
+
+export function packUniforms(settings: Settings, f: FrameInputs): ArrayBuffer {
   const buffer = new ArrayBuffer(UNIFORM_BUFFER_SIZE);
   const view = new DataView(buffer);
   const o = UNIFORM_OFFSETS;
   const f32 = (offset: number, v: number) => view.setFloat32(offset, v, true);
   const u32 = (offset: number, v: number) => view.setUint32(offset, v, true);
-  const vec3 = (offset: number, v: readonly number[]) => v.forEach((c, i) => f32(offset + 4 * i, c));
+  const vec = (offset: number, v: readonly number[]) => v.forEach((c, i) => f32(offset + 4 * i, c));
 
-  f32(o.resolution, width);
-  f32(o.resolution + 4, height);
-  f32(o.time, timeSeconds);
-  f32(o.mass, settings.mass);
-  u32(o.relativity, settings.relativity ? 1 : 0);
-  u32(o.disk, settings.disk ? 1 : 0);
-  u32(o.grid, settings.grid ? 1 : 0);
-  u32(o.stars, settings.stars ? 1 : 0);
+  f32(o.resolution, f.width);
+  f32(o.resolution + 4, f.height);
+  f32(o.time, f.timeSeconds);
+  u32(o.maxSteps, settings.maxSteps);
+  vec(o.camPos, f.camPos);
+  vec(o.f0, f.frame[0]);
+  vec(o.f1, f.frame[1]);
+  vec(o.f2, f.frame[2]);
+  vec(o.f3, f.frame[3]);
+  vec(o.params, f.params);
+  f32(o.fovScale, verticalTan(settings.fovDegrees, f.width / f.height));
+  f32(o.stepFraction, settings.stepFraction);
+  f32(o.escapeRadius, f.escapeRadius);
+  f32(o.exposure, settings.exposure);
   f32(o.diskTemp, settings.diskTemp);
-  u32(o.maxSteps, settings.steps);
-  f32(o.fovScale, FOV_SCALE);
-  f32(o.diskThickness, settings.diskThickness);
-  f32(o.diskDensity, settings.diskDensity);
-  f32(o.bloomIntensity, settings.bloomIntensity);
-  f32(o.diskSpeed, settings.diskSpeed);
-  u32(o.showPhotonSphere, settings.showPhotonSphere ? 1 : 0);
-  vec3(o.camPos, camera.pos);
-  u32(o.shiftVisualizer, settings.shiftVisualizer ? 1 : 0);
-  vec3(o.camDir, camera.dir);
-  u32(o.splitActive, settings.splitActive ? 1 : 0);
-  vec3(o.camUp, camera.up);
-  f32(o.splitX, settings.splitX);
-  vec3(o.camRight, camera.right);
-
+  let flags = 0;
+  if (settings.disk) flags |= FLAGS.disk;
+  if (settings.background === 'grid') flags |= FLAGS.grid;
+  if (settings.background === 'stars') flags |= FLAGS.stars;
+  if (settings.redshift) flags |= FLAGS.redshift;
+  u32(o.flags, flags);
+  f32(o.lengthScale, f.lengthScale);
   return buffer;
 }

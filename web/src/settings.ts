@@ -1,46 +1,44 @@
-export interface Settings {
-  renderScale: number; // 0.25 to 1.0 internal resolution
-  mass: number;
-  relativity: boolean;
-  disk: boolean;
-  grid: boolean;
-  stars: boolean;
-  diskTemp: number;
-  steps: number;
-  diskThickness: number;
-  diskDensity: number;
-  bloomIntensity: number;
-  diskSpeed: number;
-  showPhotonSphere: boolean;
-  shiftVisualizer: boolean;
-  splitActive: boolean;
-  splitX: number;
+import { catalog, type CatalogName } from '../../metrics/index.ts';
 
-  camRadius: number;
-  camPitch: number; // radians
+export type Background = 'stars' | 'grid' | 'none';
+
+export interface Settings {
+  spacetime: CatalogName;
+  /** Parameter values for each spacetime, in the order the metric file declares them. */
+  params: Partial<Record<CatalogName, number[]>>;
+
+  renderScale: number; // 0.25 to 1.0 internal resolution
+  maxSteps: number;
+  stepFraction: number; // RK4 step as a fraction of distance from the origin
+  disk: boolean;
+  background: Background;
+  redshift: boolean;
+  exposure: number;
+  diskTemp: number; // peak disk temperature in kelvin
+
+  camRadius: number; // in units of the metric's length scale (usually M)
   camYaw: number; // radians
+  camPitch: number; // radians
+  fovDegrees: number; // vertical field of view
 }
 
 export function defaultSettings(): Settings {
   return {
-    renderScale: 0.5,
-    mass: 1.8,
-    relativity: true,
+    spacetime: 'kerr',
+    params: {},
+    renderScale: 0.75,
+    maxSteps: 300,
+    stepFraction: 0.03,
     disk: true,
-    grid: false,
-    stars: true,
-    diskTemp: 6500,
-    steps: 150,
-    diskThickness: 0.08,
-    diskDensity: 1.0,
-    bloomIntensity: 1.0,
-    diskSpeed: 1.0,
-    showPhotonSphere: false,
-    shiftVisualizer: false,
-    splitActive: false,
-    splitX: 0.5,
-    camRadius: 22.0,
+    background: 'stars',
+    redshift: false,
+    exposure: 0.55,
+    diskTemp: 4500,
+    camRadius: 26,
     camYaw: 0.0,
-    camPitch: 0.12,
+    camPitch: 0.1,
+    fovDegrees: 45,
   };
 }
+
+export const SPACETIMES = Object.keys(catalog) as CatalogName[];

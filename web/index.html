@@ -4,284 +4,107 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Raymarcher</title>
-  <meta name="description" content="Real-time GPU ray tracing of light around a Schwarzschild black hole.">
-  
-  <!-- Google Fonts -->
+  <meta name="description" content="A field atlas of curved spacetime: black holes ray-traced in real time on your GPU from their metrics.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Condensed:wght@400;500;600;700&family=Spectral:ital,wght@1,400;1,500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
-  <div class="canvas-container">
-    <canvas id="gpu-canvas"></canvas>
-  </div>
-
-  <div id="webgpu-unsupported" class="modal-overlay hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>WebGPU is not available</h2>
-      </div>
-      <div class="modal-body">
-        <p>Raymarcher needs WebGPU. Use a recent Chrome or Edge, or Safari 26+, with hardware acceleration enabled.</p>
-      </div>
+  <main class="plate">
+    <div class="margin-top">
+      <svg id="az-scale" class="scale" aria-hidden="true"></svg>
+      <p class="imprint"><strong>Raymarcher</strong> <span>Field atlas of curved spacetime</span> <b id="plate-no">Plate 2</b></p>
     </div>
-  </div>
-
-  <div class="dashboard">
-    <!-- Header -->
-    <header class="dashboard-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
-      <div>
-        <h1>Raymarcher</h1>
-        <span class="subtitle">Schwarzschild black hole · WebGPU</span>
-      </div>
-      <button id="btn-info" class="btn-icon" title="Physics & Controls Guide" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; transition: var(--transition-smooth); margin-top: 4px; padding: 4px;">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="info-svg">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="16" x2="12" y2="12"></line>
-          <line x1="12" y1="8" x2="12.01" y2="8"></line>
-        </svg>
-      </button>
-    </header>
-
-    <!-- Preset Selector -->
-    <section class="panel">
-      <h3>Presets</h3>
-      <div class="preset-buttons">
-        <button class="btn active" id="preset-standard">Standard</button>
-        <button class="btn" id="preset-massive">Massive</button>
-        <button class="btn" id="preset-flat">Flat space</button>
-      </div>
-    </section>
-
-    <!-- Cinematic Flight Paths -->
-    <section class="panel">
-      <h3>Camera</h3>
-      <div class="preset-buttons">
-        <button class="btn active" id="flight-manual">Manual</button>
-        <button class="btn" id="flight-orbit">Auto-Orbit</button>
-        <button class="btn" id="flight-plunge">Horizon Dive</button>
-        <button class="btn" id="flight-flyby">Warp Fly-By</button>
-      </div>
-    </section>
-
-    <!-- Parameters Control Panel -->
-    <section class="panel control-panel">
-      <h3>Spacetime & Rendering</h3>
-
-      <div class="control-group">
-        <label for="param-render-scale">
-          <span>Render Resolution Scale</span>
-          <span class="val-bubble" id="val-render-scale">50%</span>
-        </label>
-        <input type="range" id="param-render-scale" min="0.25" max="1.00" step="0.05" value="0.50">
-      </div>
-
-      <!-- Mass Slider -->
-      <div class="control-group">
-        <label for="param-mass">
-          <span>Mass M</span>
-          <span class="val-bubble" id="val-mass">1.80</span>
-        </label>
-        <input type="range" id="param-mass" min="0.1" max="4.0" step="0.05" value="1.80">
-      </div>
-
-      <!-- Disk Thickness Slider -->
-      <div class="control-group">
-        <label for="param-disk-thickness">
-          <span>Disk Thickness</span>
-          <span class="val-bubble" id="val-disk-thickness">0.08</span>
-        </label>
-        <input type="range" id="param-disk-thickness" min="0.01" max="0.50" step="0.01" value="0.08">
-      </div>
-
-      <!-- Disk Density Slider -->
-      <div class="control-group">
-        <label for="param-disk-density">
-          <span>Disk Density</span>
-          <span class="val-bubble" id="val-disk-density">1.80</span>
-        </label>
-        <input type="range" id="param-disk-density" min="0.10" max="5.00" step="0.05" value="1.80">
-      </div>
-
-      <!-- Toggle standard vs relativistic -->
-      <div class="control-row">
-        <span>Gravitational lensing</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-relativity" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-    </section>
-
-    <!-- Visual Options Panel -->
-    <section class="panel visuals-panel">
-      <h3>Visual Elements</h3>
-
-      <div class="control-row">
-        <span>Accretion disk</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-disk" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-row">
-        <span>Calibration grid</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-grid">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-row">
-        <span>Starfield</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-stars" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-row">
-        <span>Photon sphere shell</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-photon-sphere">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-row">
-        <span>Redshift colours</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-shift-visualizer">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-row">
-        <span>Split screen vs flat space</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-split-screen">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <!-- Glow/Bloom Intensity Slider -->
-      <div class="control-group">
-        <label for="param-bloom-intensity">
-          <span>Glow Intensity</span>
-          <span class="val-bubble" id="val-bloom-intensity">1.00</span>
-        </label>
-        <input type="range" id="param-bloom-intensity" min="0.00" max="2.00" step="0.05" value="1.00">
-      </div>
-
-      <!-- Disk Rotation Speed Slider -->
-      <div class="control-group">
-        <label for="param-disk-speed">
-          <span>Disk Speed</span>
-          <span class="val-bubble" id="val-disk-speed">1.00</span>
-        </label>
-        <input type="range" id="param-disk-speed" min="0.00" max="2.00" step="0.10" value="1.00">
-      </div>
-
-      <div class="control-group">
-        <label for="param-disk-temp">
-          <span>Disk Temp (K)</span>
-          <span class="val-bubble" id="val-disk-temp">6500 K</span>
-        </label>
-        <input type="range" id="param-disk-temp" min="1000" max="15000" step="100" value="6500">
-      </div>
-
-      <div class="control-group">
-        <label for="param-steps">
-          <span>Max integration steps</span>
-          <span class="val-bubble" id="val-steps">150</span>
-        </label>
-        <input type="range" id="param-steps" min="30" max="300" step="10" value="150">
-      </div>
-    </section>
-
-    <!-- Stats & Information Panel -->
-    <section class="panel stats-panel">
-      <h3>Telemetry</h3>
-      <div class="stats-grid">
-        <div class="stat-box">
-          <span class="stat-label">Framerate</span>
-          <span class="stat-val" id="stat-fps">-- FPS</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-label">Horizon 2M</span>
-          <span class="stat-val" id="stat-horizon">3.60</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-label">Photon sphere 3M</span>
-          <span class="stat-val" id="stat-photon-sphere">5.40</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Interactive Navigation Tab / Guide -->
-    <div class="panel guide-panel">
-      <h3>Physics Guide</h3>
-      <div class="guide-tabs">
-        <button class="tab-btn active" data-tab="lensing">Lensing</button>
-        <button class="tab-btn" data-tab="disk">Accretion</button>
-        <button class="tab-btn" data-tab="beaming">Doppler</button>
-      </div>
-      <div class="tab-content" id="tab-lensing">
-        <p><strong>Gravitational Lensing:</strong> The strong gravitational field of the black hole warps spacetime, forcing photons to follow curved paths. Light from behind the black hole is focused toward the observer, producing visual double images, distorted arches, and circular <strong>Einstein Rings</strong>.</p>
-      </div>
-      <div class="tab-content hidden" id="tab-disk">
-        <p><strong>Accretion Disk:</strong> Gas and dust orbiting the black hole form a thin, spinning disk. Because light is lensed, you can see both the top and bottom of the rear side of the disk, warped into halos that wrap around the event horizon.</p>
-      </div>
-      <div class="tab-content hidden" id="tab-beaming">
-        <p><strong>Doppler Beaming:</strong> The side of the accretion disk rotating toward you appears significantly brighter and hotter (blueshifted) due to relativistic velocity. The side rotating away is dimmer and redder (redshifted).</p>
-      </div>
+    <div class="margin-left">
+      <svg id="el-scale" class="scale" aria-hidden="true"></svg>
     </div>
-  </div>
 
-  <div class="interaction-hint">
-    Drag to rotate camera • Scroll to zoom
-  </div>
-
-  <!-- Physics & Controls Info Modal -->
-  <div id="info-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>How this works</h2>
-        <button id="modal-close" class="btn-close">&times;</button>
+    <figure class="field" id="field">
+      <canvas id="view" tabindex="0" aria-label="Ray-traced view of the selected spacetime. Drag to orbit, scroll to change distance, arrow keys to orbit."></canvas>
+      <svg id="marks" class="marks" aria-hidden="true"></svg>
+      <figcaption class="plate-title">
+        <h1 id="chart-name">Kerr</h1>
+        <p class="chart-params" id="chart-params"></p>
+        <p class="chart-desc" id="chart-desc"></p>
+      </figcaption>
+      <div class="sweep" id="sweep" hidden></div>
+      <div class="notice" id="notice" hidden>
+        <h2>This chart needs WebGPU</h2>
+        <p>Open it in a recent Chrome or Edge, or Safari 26 or later, with hardware acceleration turned on.</p>
       </div>
-      <div class="modal-body">
-        <p>This renders a non-rotating <strong>Schwarzschild black hole</strong> by tracing one light ray per pixel backwards from the camera through curved spacetime.</p>
+    </figure>
 
-        <div class="physics-section">
-          <h4>1. Bending of light</h4>
-          <p>In isotropic coordinates, light in Schwarzschild spacetime behaves like light in a medium whose refractive index grows near the black hole. Each ray is stepped with a 4th-order Runge-Kutta (RK4) integrator.</p>
-          <div class="physics-eqn">n(r) = (1 + u)³ / (1 − u),  u = M / 2r</div>
-          <p style="font-size: 0.75rem; font-style: italic;">Units are geometric (G = c = 1). The horizon sits at isotropic r = M/2, which is the areal radius R = 2M.</p>
-        </div>
+    <section class="key" aria-label="Chart key">
+      <fieldset class="key-col">
+        <legend>Chart</legend>
+        <ol class="charts" id="charts"></ol>
+      </fieldset>
 
-        <div class="physics-section">
-          <h4>2. Accretion disk</h4>
-          <p>The disk is a volumetric emitter with a Gaussian vertical profile and procedural turbulence. Its density, temperature profile and edges are artistic choices, not a physical disk model.</p>
-        </div>
+      <fieldset class="key-col">
+        <legend>Parameters</legend>
+        <div class="params" id="params"></div>
+      </fieldset>
 
-        <div class="physics-section">
-          <h4>3. Doppler and gravitational shifts</h4>
-          <p>Gas moving toward the camera looks hotter and brighter; light climbing out of the gravity well loses energy. Both are applied to the disk colour.</p>
-          <div class="physics-eqn">g = g_doppler × g_grav,  T_observed = g × T_emitted</div>
-          <p style="font-size: 0.75rem; font-style: italic;">The current Doppler factor uses the gas velocity in flat-space form; a fully covariant version is planned.</p>
+      <fieldset class="key-col">
+        <legend>Sky</legend>
+        <div class="choices" role="radiogroup" aria-label="Background sky">
+          <label class="choice"><input type="radio" name="sky" value="stars" checked><span>Stars</span></label>
+          <label class="choice"><input type="radio" name="sky" value="grid"><span>Grid</span></label>
+          <label class="choice"><input type="radio" name="sky" value="none"><span>None</span></label>
         </div>
+        <p class="note">The grid is a latitude–longitude net on the sky; its distortion is the lensing.</p>
+      </fieldset>
 
-        <div class="physics-section">
-          <h4>4. What's next</h4>
-          <p>The physics here is being replaced by a spacetime compiler that generates the ray equations for any metric, including spinning (Kerr) black holes and wormholes.</p>
+      <fieldset class="key-col">
+        <legend>Disk</legend>
+        <label class="check"><input type="checkbox" id="disk" checked><span>Accretion disk</span></label>
+        <label class="slider">
+          <span class="slider-label">Peak temperature <output id="disk-temp-out"></output></span>
+          <input type="range" id="disk-temp" min="2500" max="12000" step="100">
+        </label>
+        <label class="check"><input type="checkbox" id="redshift"><span>Colour by redshift</span></label>
+        <div class="gscale" id="gscale" hidden>
+          <div class="gscale-bar"></div>
+          <div class="gscale-ticks"><span>0.4</span><span>0.7</span><span>1.0</span><span>1.3</span><span>1.6</span></div>
+          <p class="note">g = observed ÷ emitted energy. Below 1: receding, redder. Above 1: approaching, bluer.</p>
         </div>
+        <p class="note">Positions, redshift and g⁴ beaming are computed. The swirl texture and colour grading are illustrative.</p>
+      </fieldset>
+
+      <fieldset class="key-col">
+        <legend>Observer</legend>
+        <label class="slider">
+          <span class="slider-label">Distance <output id="distance-out"></output></span>
+          <input type="range" id="distance" min="4" max="80" step="0.5">
+        </label>
+        <label class="slider">
+          <span class="slider-label">Field of view <output id="fov-out"></output></span>
+          <input type="range" id="fov" min="15" max="90" step="1">
+        </label>
+        <label class="check"><input type="checkbox" id="orbit"><span>Orbit slowly</span></label>
+        <p class="note">Drag the chart to orbit, scroll to move closer. Arrow keys work when the chart is focused.</p>
+      </fieldset>
+
+      <div class="key-col readout">
+        <h2>Readout</h2>
+        <dl>
+          <div><dt>Frame</dt><dd id="ro-frame">—</dd></div>
+          <div><dt>Image</dt><dd id="ro-image">—</dd></div>
+          <div><dt>Shadow</dt><dd id="ro-shadow">—</dd></div>
+        </dl>
+        <label class="slider">
+          <span class="slider-label">Resolution <output id="render-scale-out"></output></span>
+          <input type="range" id="render-scale" min="0.25" max="1" step="0.05">
+        </label>
+        <ul class="symbols" aria-label="Symbols on the chart">
+          <li><svg viewBox="0 0 28 10" aria-hidden="true"><path class="sym-edge" d="M1 5H27"/></svg>Shadow edge, traced on the CPU</li>
+          <li><svg viewBox="0 0 28 10" aria-hidden="true"><circle class="sym-dot" cx="4" cy="7" r="2.5"/><path class="sym-leader" d="M4 7L12 2H27"/></svg>Measured point</li>
+          <li><svg viewBox="0 0 28 10" aria-hidden="true"><path class="sym-centre" d="M9 5h10M14 0v10"/></svg>Optical axis</li>
+        </ul>
       </div>
-    </div>
-  </div>
-
+    </section>
+  </main>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

@@ -37,3 +37,7 @@ cmake-build-*/
 imgui.ini
 benchmark_report.json
 raymarcher_snap_*.bmp
+
+# Design tools
+.impeccable/
+

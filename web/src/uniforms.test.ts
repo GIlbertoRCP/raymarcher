@@ -1,31 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { orbitCamera } from './camera.ts';
+import { tracerPrelude } from './shaders/tracer.wgsl.ts';
 import { defaultSettings } from './settings.ts';
-import { raymarchWGSL } from './shaders/raymarch.wgsl.ts';
-import { FOV_SCALE, packUniforms, UNIFORM_BUFFER_SIZE, UNIFORM_OFFSETS } from './uniforms.ts';
+import { FLAGS, packUniforms, UNIFORM_BUFFER_SIZE, UNIFORM_OFFSETS } from './uniforms.ts';
 
 // Size and alignment of the WGSL types used in the Uniforms struct.
 const WGSL_TYPES: Record<string, { size: number; align: number }> = {
   'f32': { size: 4, align: 4 },
   'u32': { size: 4, align: 4 },
   'vec2<f32>': { size: 8, align: 8 },
-  'vec3<f32>': { size: 12, align: 16 },
+  'vec4<f32>': { size: 16, align: 16 },
+  'array<vec4<f32>,2>': { size: 32, align: 16 },
 };
 
 const roundUp = (n: number, align: number) => Math.ceil(n / align) * align;
-const camelCase = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+const camelCase = (s: string) => s.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
 
 /** Lays out the WGSL `Uniforms` struct using the WGSL alignment rules. */
 function wgslUniformLayout() {
-  const body = raymarchWGSL.match(/struct Uniforms \{([^}]*)\}/)![1];
+  const body = tracerPrelude.match(/struct Uniforms \{([^}]*)\}/)![1].replace(/\/\/.*$/gm, '');
   const offsets: Record<string, number> = {};
   let offset = 0;
   let maxAlign = 1;
-  for (const [, name, type] of body.matchAll(/(\w+)\s*:\s*([\w<>]+)\s*,/g)) {
+  for (const [, name, rawType] of body.matchAll(/^\s*(\w+)\s*:\s*(.+?),\s*$/gm)) {
+    const type = rawType.replace(/\s+/g, '');
     const t = WGSL_TYPES[type];
     if (!t) throw new Error(`Unhandled WGSL type ${type}`);
     offset = roundUp(offset, t.align);
-    offsets[camelCase(name.replace(/^u_/, ''))] = offset;
+    offsets[camelCase(name)] = offset;
     offset += t.size;
     maxAlign = Math.max(maxAlign, t.align);
   }
@@ -46,25 +47,21 @@ describe('uniform buffer layout', () => {
 });
 
 describe('packUniforms', () => {
-  it('writes settings and camera at their offsets', () => {
-    const settings = { ...defaultSettings(), mass: 2.5, steps: 120, disk: false, splitX: 0.25 };
-    const camera = orbitCamera(10, 0.3, 0.2);
-    const view = new DataView(packUniforms(settings, camera, 800, 600, 4.5));
+  it('writes the camera frame, parameters and flags', () => {
+    const settings = { ...defaultSettings(), background: 'grid' as const, redshift: true, maxSteps: 321 };
+    const frame: [number, number, number, number][] = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]];
+    const view = new DataView(
+      packUniforms(settings, {
+        width: 800, height: 600, timeSeconds: 2, camPos: [0, 1, 2, 3], frame,
+        params: [1.5, 0.9], lengthScale: 1.5, escapeRadius: 90,
+      }),
+    );
     const o = UNIFORM_OFFSETS;
-
-    expect(view.byteLength).toBe(UNIFORM_BUFFER_SIZE);
-    expect(view.getFloat32(o.resolution, true)).toBe(800);
-    expect(view.getFloat32(o.resolution + 4, true)).toBe(600);
-    expect(view.getFloat32(o.time, true)).toBe(4.5);
-    expect(view.getFloat32(o.mass, true)).toBe(2.5);
-    expect(view.getUint32(o.maxSteps, true)).toBe(120);
-    expect(view.getUint32(o.disk, true)).toBe(0);
-    expect(view.getUint32(o.relativity, true)).toBe(1);
-    expect(view.getFloat32(o.splitX, true)).toBe(0.25);
-    expect(view.getFloat32(o.fovScale, true)).toBeCloseTo(FOV_SCALE, 6);
-    for (let i = 0; i < 3; i++) {
-      expect(view.getFloat32(o.camPos + 4 * i, true)).toBeCloseTo(camera.pos[i], 5);
-      expect(view.getFloat32(o.camRight + 4 * i, true)).toBeCloseTo(camera.right[i], 6);
-    }
+    expect(view.getUint32(o.maxSteps, true)).toBe(321);
+    expect(view.getFloat32(o.camPos + 12, true)).toBe(3);
+    expect(view.getFloat32(o.f2 + 8, true)).toBe(11);
+    expect(view.getFloat32(o.params + 4, true)).toBeCloseTo(0.9, 6);
+    expect(view.getUint32(o.flags, true)).toBe(FLAGS.disk | FLAGS.grid | FLAGS.redshift);
+    expect(view.getFloat32(o.escapeRadius, true)).toBe(90);
   });
 });
