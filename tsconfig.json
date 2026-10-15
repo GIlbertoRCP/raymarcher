@@ -20,5 +20,5 @@
     "noImplicitReturns": true,
     "types": ["@webgpu/types"]
   },
-  "include": ["src"]
+  "include": ["web/src", "vite.config.ts"]
 }

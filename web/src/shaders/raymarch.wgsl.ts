@@ -1,27 +1,8 @@
 export const raymarchWGSL = `
-struct VertexOutput {
-  @builtin(position) position: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) vertex_idx: u32) -> VertexOutput {
-  var out: VertexOutput;
-  var pos = array<vec2<f32>, 3>(
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>( 3.0, -1.0),
-    vec2<f32>(-1.0,  3.0)
-  );
-  out.position = vec4<f32>(pos[vertex_idx], 0.0, 1.0);
-  out.uv = pos[vertex_idx] * 0.5 + 0.5;
-  return out;
-}
-
 struct Uniforms {
   u_resolution: vec2<f32>,
   u_time: f32,
   u_mass: f32,
-  u_spin: f32,
   u_relativity: u32,
   u_disk: u32,
   u_grid: u32,
@@ -34,21 +15,14 @@ struct Uniforms {
   u_bloom_intensity: f32,
   u_disk_speed: f32,
   u_show_photon_sphere: u32,
-  u_shift_visualizer: u32,
-  u_split_active: u32,
-  u_split_x: f32,
   u_cam_pos: vec3<f32>,
-  u_spectrum_mode: f32,
+  u_shift_visualizer: u32,
   u_cam_dir: vec3<f32>,
-  u_csg_mode: u32,
+  u_split_active: u32,
   u_cam_up: vec3<f32>,
-  u_csg_blend: f32,
+  u_split_x: f32,
   u_cam_right: vec3<f32>,
-  u_soft_shadows: u32,
-  u_shadow_k: f32,
-  u_ao_enabled: u32,
-  u_ao_intensity: f32,
-  u_padding: f32,
+  u_pad: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -57,6 +31,8 @@ struct Uniforms {
 @group(0) @binding(3) var out_texture: texture_storage_2d<rgba16float, write>;
 
 const PI: f32 = 3.14159265359;
+// Photon sphere R = 3M expressed as an isotropic radius: r = M (1 + sqrt(3) / 2).
+const PHOTON_SPHERE_ISO: f32 = 1.8660254;
 
 fn custom_step(edge: f32, x: f32) -> f32 {
   if (x < edge) { return 0.0; }
@@ -126,32 +102,18 @@ fn blackbody(Temp_in: f32) -> vec3<f32> {
   return vec3<f32>(r, g, b);
 }
 
-fn get_color_from_spectrum(Temp: f32, mode: u32) -> vec3<f32> {
-  if (mode == 0u) { return blackbody(Temp); }
-  let t = clamp(Temp / 12000.0, 0.0, 1.0);
-  if (mode == 1u) { return mix(vec3<f32>(0.18, 0.0, 0.5), vec3<f32>(1.0, 0.0, 0.55), t) * 2.2; }
-  if (mode == 2u) { return mix(vec3<f32>(0.55, 0.05, 0.0), vec3<f32>(1.0, 0.88, 0.15), t) * 2.2; }
-  return mix(vec3<f32>(0.0, 0.35, 0.8), vec3<f32>(0.0, 1.0, 0.35), t) * 2.2;
-}
-
+// Light in Schwarzschild spacetime, written in isotropic coordinates, moves
+// like light in a medium with refractive index n(r) = (1 + u)^3 / (1 - u),
+// u = M / 2r. With coordinate time as the parameter (|v| = 1/n):
+//   dv/dt = grad(n) / n^3 - 2 v (grad(n) . v) / n
+// web/src/physics.ts mirrors this in double precision for the tests.
 fn compute_force(x: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
   let r = max(length(x), uniforms.u_mass * 0.5 + 0.001);
   let u = min(uniforms.u_mass / (2.0 * r), 0.999);
-  let one_plus_u = 1.0 + u;
-  let one_minus_u = 1.0 - u;
-  
-  let num = -uniforms.u_mass * pow(one_plus_u, 5.0) * (2.0 - u);
-  let den = pow(r, 3.0) * pow(one_minus_u, 3.0);
-  let f_grav = (num / den) * x;
-  
-  if (uniforms.u_spin > 0.0) {
-    let j = uniforms.u_mass * uniforms.u_spin;
-    let omega = 2.0 * j / (pow(r, 3.0) * pow(one_plus_u, 6.0));
-    let omega_vec = vec3<f32>(0.0, 0.0, omega);
-    let f_fd = 2.0 * cross(v, omega_vec);
-    return f_grav + f_fd;
-  }
-  return f_grav;
+  let n = pow(1.0 + u, 3.0) / (1.0 - u);
+  let dn_dr = -2.0 * u * (1.0 + u) * (1.0 + u) * (2.0 - u) / ((1.0 - u) * (1.0 - u) * r);
+  let grad_n = (dn_dr / r) * x;
+  return grad_n / (n * n * n) - (2.0 * dot(grad_n, v) / n) * v;
 }
 
 fn rk4_step(px: ptr<function, vec3<f32>>, pv: ptr<function, vec3<f32>>, h: f32) {
@@ -185,94 +147,6 @@ fn rk4_step(px: ptr<function, vec3<f32>>, pv: ptr<function, vec3<f32>>, h: f32) 
   *px = new_x; *pv = new_v;
 }
 
-// CSG Primitives & Blending
-fn sdSphere(p: vec3<f32>, r: f32) -> f32 { return length(p) - r; }
-fn sdTorus(p: vec3<f32>, t: vec2<f32>) -> f32 {
-  let q = vec2<f32>(length(p.xy) - t.x, p.z);
-  return length(q) - t.y;
-}
-
-fn smin(a: f32, b: f32, k: f32) -> f32 {
-  if (k <= 0.001) { return min(a, b); }
-  let h = max(k - abs(a - b), 0.0) / k;
-  return min(a, b) - h * h * k * 0.25;
-}
-
-fn smax(a: f32, b: f32, k: f32) -> f32 {
-  if (k <= 0.001) { return max(a, b); }
-  let h = max(k - abs(a - b), 0.0) / k;
-  return max(a, b) + h * h * k * 0.25;
-}
-
-fn map_csg(p: vec3<f32>, csg_mode: u32, k: f32, mass: f32, color: ptr<function, vec3<f32>>) -> f32 {
-  let d_main = sdSphere(p, 1.8 * mass);
-  *color = vec3<f32>(0.2, 0.6, 1.0);
-  if (csg_mode == 0u) { return d_main; }
-  
-  let p_torus = vec3<f32>(p.x, p.y, p.z - 0.4 * mass);
-  let d_torus = sdTorus(p_torus, vec2<f32>(3.5 * mass, 0.4 * mass));
-  let p_sph = vec3<f32>(p.x - 3.2 * mass, p.y, p.z);
-  let d_sph = sdSphere(p_sph, 0.9 * mass);
-  let d_sub = min(d_torus, d_sph);
-  
-  if (csg_mode == 1u) { // Union
-    if (d_sub < d_main) { *color = vec3<f32>(1.0, 0.4, 0.2); }
-    return min(d_main, d_sub);
-  } else if (csg_mode == 2u) { // Smooth Min
-    let d_res = smin(d_main, d_sub, k);
-    let h = clamp((d_main - d_sub) / (k + 1e-4) + 0.5, 0.0, 1.0);
-    *color = mix(vec3<f32>(1.0, 0.4, 0.2), vec3<f32>(0.2, 0.6, 1.0), h);
-    return d_res;
-  } else if (csg_mode == 3u) { // Subtraction
-    let d_res = smax(d_main, -d_sub, k);
-    if (-d_sub > d_main) { *color = vec3<f32>(0.9, 0.1, 0.3); }
-    return d_res;
-  } else if (csg_mode == 4u) { // Intersection
-    let d_res = smax(d_main, d_sub, k);
-    *color = vec3<f32>(0.8, 0.2, 0.9);
-    return d_res;
-  }
-  return d_main;
-}
-
-fn calc_normal(p: vec3<f32>, csg_mode: u32, k: f32, mass: f32) -> vec3<f32> {
-  let eps = 0.002;
-  var dummy = vec3<f32>(0.0);
-  let d = map_csg(p, csg_mode, k, mass, &dummy);
-  let n = vec3<f32>(
-    map_csg(p + vec3<f32>(eps, 0.0, 0.0), csg_mode, k, mass, &dummy) - d,
-    map_csg(p + vec3<f32>(0.0, eps, 0.0), csg_mode, k, mass, &dummy) - d,
-    map_csg(p + vec3<f32>(0.0, 0.0, eps), csg_mode, k, mass, &dummy) - d
-  );
-  return normalize(n);
-}
-
-fn evaluate_soft_shadow(ro: vec3<f32>, rd: vec3<f32>, csg_mode: u32, blend: f32, mass: f32, k: f32) -> f32 {
-  var res = 1.0;
-  var t = 0.05;
-  var dummy = vec3<f32>(0.0);
-  for (var i = 0; i < 20; i++) {
-    let h = map_csg(ro + rd * t, csg_mode, blend, mass, &dummy);
-    if (h < 0.001) { return 0.0; }
-    res = min(res, k * h / t);
-    t += max(h, 0.04);
-    if (t > 15.0) { break; }
-  }
-  return clamp(res, 0.0, 1.0);
-}
-
-fn evaluate_ao(p: vec3<f32>, n: vec3<f32>, csg_mode: u32, blend: f32, mass: f32, intensity: f32) -> f32 {
-  var occ = 0.0; var sca = 1.0;
-  var dummy = vec3<f32>(0.0);
-  for (var i = 0u; i < 5u; i++) {
-    let h = 0.01 + 0.12 * f32(i);
-    let d = map_csg(p + n * h, csg_mode, blend, mass, &dummy);
-    occ += (h - d) * sca;
-    sca *= 0.75;
-  }
-  return clamp(1.0 - intensity * occ, 0.0, 1.0);
-}
-
 fn sample_accretion_disk(
   x: vec3<f32>, v: vec3<f32>, h: f32,
   accum_color: ptr<function, vec3<f32>>, accum_trans: ptr<function, f32>
@@ -288,7 +162,7 @@ fn sample_accretion_disk(
     var density = uniforms.u_disk_density * vertical_density * radial_density;
     
     if (density > 0.001) {
-      let omega = 1.0 / (pow(r_xy, 1.5) + uniforms.u_spin);
+      let omega = sqrt(uniforms.u_mass) / pow(r_xy, 1.5);
       let phi = atan2(x.y, x.x);
       let phi_rotated = phi - uniforms.u_time * uniforms.u_disk_speed * (0.8 / (pow(r_xy, 1.5) + 0.1));
       
@@ -322,7 +196,7 @@ fn sample_accretion_disk(
       let g_total = g_doppler * g_grav;
       let T_obs = T * g_total;
       
-      var emission_color = get_color_from_spectrum(T_obs, u32(uniforms.u_spectrum_mode));
+      var emission_color = blackbody(T_obs);
       if (uniforms.u_shift_visualizer != 0u) {
         if (g_total > 1.0) {
           let t = clamp((g_total - 1.0) * 1.5, 0.0, 1.0);
@@ -379,7 +253,6 @@ fn raymarch_core(uv: vec2<f32>) -> vec4<f32> {
           let r_out = 9.5 * uniforms.u_mass;
           if (r_xy >= r_in && r_xy <= r_out && uniforms.u_mass > 0.0) {
             let T = uniforms.u_disk_temp * pow(r_in / r_xy, 0.75);
-            let omega = 1.0 / (pow(r_xy, 1.5) + uniforms.u_spin);
             let phi = atan2(hit_pos.y, hit_pos.x);
             let phi_rotated = phi - uniforms.u_time * uniforms.u_disk_speed * (0.8 / (pow(r_xy, 1.5) + 0.1));
             
@@ -392,7 +265,7 @@ fn raymarch_core(uv: vec2<f32>) -> vec4<f32> {
             let n2 = textureSampleLevel(u_noise_tex, u_noise_sampler, vec2<f32>(u2, v2), 0.0).g * 0.5;
             let noise = (n1 + n2) / 1.5;
             
-            var color = get_color_from_spectrum(T, u32(uniforms.u_spectrum_mode)) * (0.25 + 0.75 * noise);
+            var color = blackbody(T) * (0.25 + 0.75 * noise);
             if (uniforms.u_shift_visualizer != 0u) {
               color = vec3<f32>(0.1, 0.7, 0.1) * (0.25 + 0.75 * noise) * 2.0;
             }
@@ -421,47 +294,38 @@ fn raymarch_core(uv: vec2<f32>) -> vec4<f32> {
   }
   
   var captured = false;
+  // Rays that get past both the scene and the camera are treated as escaped.
+  let r_escape = max(30.0, r_cam + 1.0);
+  let r_ps = uniforms.u_mass * PHOTON_SPHERE_ISO;
   
   for (var step = 0u; step < 300u; step++) {
     if (step >= uniforms.u_max_steps) { break; }
     let r = length(ray_pos);
-    if (r <= r_eh + 0.015) { captured = true; break; }
-    if (r > 30.0) { break; }
+    // Inside the photon sphere (R < 3M) an ingoing ray can only fall in, so
+    // it is captured without integrating the stiff region near the horizon.
+    if (r <= r_eh + 0.015 || (r < r_ps && dot(ray_pos, ray_vel) < 0.0)) { captured = true; break; }
+    if (r > r_escape) { break; }
     
-    if (uniforms.u_csg_mode != 0u && uniforms.u_mass > 0.0) {
-      var obj_color = vec3<f32>(0.0);
-      let d_csg = map_csg(ray_pos, uniforms.u_csg_mode, uniforms.u_csg_blend, uniforms.u_mass, &obj_color);
-      if (d_csg < 0.01) {
-        let norm = calc_normal(ray_pos, uniforms.u_csg_mode, uniforms.u_csg_blend, uniforms.u_mass);
-        let light_dir = vec3<f32>(0.577, 0.577, 0.577);
-        let diff = max(0.15, dot(norm, light_dir));
-        
-        var shadow = 1.0;
-        if (uniforms.u_soft_shadows != 0u) {
-          shadow = evaluate_soft_shadow(ray_pos + norm * 0.02, light_dir, uniforms.u_csg_mode, uniforms.u_csg_blend, uniforms.u_mass, uniforms.u_shadow_k);
-        }
-        
-        var ao = 1.0;
-        if (uniforms.u_ao_enabled != 0u) {
-          ao = evaluate_ao(ray_pos, norm, uniforms.u_csg_mode, uniforms.u_csg_blend, uniforms.u_mass, uniforms.u_ao_intensity);
-        }
-        
-        let surf_color = obj_color * (diff * shadow * ao);
-        accum_color += accum_trans * surf_color;
-        accum_trans *= 0.10;
-        break;
-      }
+    // Spatial step length: small near the hole, growing quadratically beyond
+    // r = 6M where bending is weak. Same rule as the CUDA renderer.
+    let r_dist = max(0.0, r - r_eh);
+    var ds = 0.05 + 0.35 * min(r_dist / 4.0, 1.0);
+    let r_far = 6.0 * max(uniforms.u_mass, 0.1);
+    if (r > r_far) {
+      ds += 0.08 * (r - r_far) * (r - r_far);
     }
-    
-    let h_step = 0.18 * (0.05 + 0.95 * clamp((r - r_eh) / 5.0, 0.0, 1.0));
+    ds = min(ds, 1.25);
+    // The integrator's parameter is coordinate time and light moves at 1/n,
+    // so a step of ds in space takes n * ds in time.
+    let u_step = min(uniforms.u_mass / (2.0 * max(r, r_eh + 0.001)), 0.999);
+    let h_step = ds * pow(1.0 + u_step, 3.0) / (1.0 - u_step);
     let prev_pos = ray_pos;
     
     rk4_step(&ray_pos, &ray_vel, h_step);
     
     if (uniforms.u_show_photon_sphere != 0u && uniforms.u_mass > 0.0) {
       let r_prev = length(prev_pos);
-      let r_curr = r;
-      let r_ps = 3.0 * uniforms.u_mass;
+      let r_curr = length(ray_pos);
       if ((r_prev > r_ps && r_curr <= r_ps) || (r_prev < r_ps && r_curr >= r_ps)) {
         accum_color += accum_trans * vec3<f32>(0.0, 1.0, 0.35) * 0.22;
       }
@@ -470,7 +334,7 @@ fn raymarch_core(uv: vec2<f32>) -> vec4<f32> {
     if (uniforms.u_disk != 0u && uniforms.u_mass > 0.0) {
       for (var i = 0u; i < 3u; i++) {
         let r_orbit = 4.2 + f32(i) * 2.0;
-        let omega = 1.0 / (pow(r_orbit, 1.5) + uniforms.u_spin);
+        let omega = sqrt(uniforms.u_mass) / pow(r_orbit, 1.5);
         let phi_hot = uniforms.u_time * omega * uniforms.u_disk_speed + f32(i) * 2.0944;
         let p_orbit = vec3<f32>(cos(phi_hot) * r_orbit, sin(phi_hot) * r_orbit, 0.0);
         let dist = length(ray_pos - p_orbit);
@@ -515,7 +379,7 @@ fn raymarch_core(uv: vec2<f32>) -> vec4<f32> {
       if (sign_prev * sign_curr <= 0.0 || abs(ray_pos.z) < 0.18 * uniforms.u_mass) {
         let fraction = abs(prev_pos.z) / (abs(prev_pos.z) + abs(ray_pos.z) + 1e-6);
         let cross_pos = mix(prev_pos, ray_pos, fraction);
-        sample_accretion_disk(cross_pos, ray_vel, h_step, &accum_color, &accum_trans);
+        sample_accretion_disk(cross_pos, ray_vel, ds, &accum_color, &accum_trans);
       }
     }
     
@@ -554,12 +418,6 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   
   let color = raymarch_core(uv);
   textureStore(out_texture, vec2<i32>(global_id.xy), color);
-}
-
-// Fragment Shader Fallback Entry Point
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  return raymarch_core(in.uv);
 }
 
 struct CompVertexOutput {

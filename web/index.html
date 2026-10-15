@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Relativistic Spacetime & Black Hole Raymarcher</title>
-  <meta name="description" content="An interactive real-time visualizer of General Relativity, lensing, Einstein rings, and Kerr black holes using GPU raymarching.">
+  <title>Raymarcher</title>
+  <meta name="description" content="Real-time GPU ray tracing of light around a Schwarzschild black hole.">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,18 +14,27 @@
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
-  <!-- Canvas container for full screen WebGL -->
   <div class="canvas-container">
-    <canvas id="webgl-canvas"></canvas>
+    <canvas id="gpu-canvas"></canvas>
   </div>
 
-  <!-- Glassmorphic Dashboard Layout -->
+  <div id="webgpu-unsupported" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>WebGPU is not available</h2>
+      </div>
+      <div class="modal-body">
+        <p>Raymarcher needs WebGPU. Use a recent Chrome or Edge, or Safari 26+, with hardware acceleration enabled.</p>
+      </div>
+    </div>
+  </div>
+
   <div class="dashboard">
     <!-- Header -->
     <header class="dashboard-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
-        <h1>Event Horizon</h1>
-        <span class="subtitle">Relativistic Raymarcher v1.0</span>
+        <h1>Raymarcher</h1>
+        <span class="subtitle">Schwarzschild black hole · WebGPU</span>
       </div>
       <button id="btn-info" class="btn-icon" title="Physics & Controls Guide" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; transition: var(--transition-smooth); margin-top: 4px; padding: 4px;">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="info-svg">
@@ -38,18 +47,17 @@
 
     <!-- Preset Selector -->
     <section class="panel">
-      <h3>Visual Presets</h3>
+      <h3>Presets</h3>
       <div class="preset-buttons">
-        <button class="btn active" id="preset-gargantua">Gargantua</button>
-        <button class="btn" id="preset-micro">Micro-BH</button>
-        <button class="btn" id="preset-kerr">Kerr Extremum</button>
-        <button class="btn" id="preset-newton">Newtonian Space</button>
+        <button class="btn active" id="preset-standard">Standard</button>
+        <button class="btn" id="preset-massive">Massive</button>
+        <button class="btn" id="preset-flat">Flat space</button>
       </div>
     </section>
 
     <!-- Cinematic Flight Paths -->
     <section class="panel">
-      <h3>Cinematic Flight Paths</h3>
+      <h3>Camera</h3>
       <div class="preset-buttons">
         <button class="btn active" id="flight-manual">Manual</button>
         <button class="btn" id="flight-orbit">Auto-Orbit</button>
@@ -60,9 +68,8 @@
 
     <!-- Parameters Control Panel -->
     <section class="panel control-panel">
-      <h3>Spacetime & Render Settings</h3>
+      <h3>Spacetime & Rendering</h3>
 
-      <!-- Render Scale Slider (Safe Mode Default) -->
       <div class="control-group">
         <label for="param-render-scale">
           <span>Render Resolution Scale</span>
@@ -74,19 +81,10 @@
       <!-- Mass Slider -->
       <div class="control-group">
         <label for="param-mass">
-          <span>Black Hole Mass (M)</span>
+          <span>Mass M</span>
           <span class="val-bubble" id="val-mass">1.80</span>
         </label>
         <input type="range" id="param-mass" min="0.1" max="4.0" step="0.05" value="1.80">
-      </div>
-
-      <!-- Spin Slider -->
-      <div class="control-group">
-        <label for="param-spin">
-          <span>Spin (a/M)</span>
-          <span class="val-bubble" id="val-spin">0.60</span>
-        </label>
-        <input type="range" id="param-spin" min="0.0" max="0.99" step="0.01" value="0.60">
       </div>
 
       <!-- Disk Thickness Slider -->
@@ -109,7 +107,7 @@
 
       <!-- Toggle standard vs relativistic -->
       <div class="control-row">
-        <span>Relativistic Physics</span>
+        <span>Gravitational lensing</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-relativity" checked>
           <span class="slider"></span>
@@ -122,7 +120,7 @@
       <h3>Visual Elements</h3>
 
       <div class="control-row">
-        <span>Accretion Disk</span>
+        <span>Accretion disk</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-disk" checked>
           <span class="slider"></span>
@@ -130,7 +128,7 @@
       </div>
 
       <div class="control-row">
-        <span>Calibration Grid</span>
+        <span>Calibration grid</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-grid">
           <span class="slider"></span>
@@ -138,7 +136,7 @@
       </div>
 
       <div class="control-row">
-        <span>Starfield Background</span>
+        <span>Starfield</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-stars" checked>
           <span class="slider"></span>
@@ -146,7 +144,7 @@
       </div>
 
       <div class="control-row">
-        <span>Photon Sphere Shell</span>
+        <span>Photon sphere shell</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-photon-sphere">
           <span class="slider"></span>
@@ -154,7 +152,7 @@
       </div>
 
       <div class="control-row">
-        <span>Shift Color Mode</span>
+        <span>Redshift colours</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-shift-visualizer">
           <span class="slider"></span>
@@ -162,7 +160,7 @@
       </div>
 
       <div class="control-row">
-        <span>Split Screen comparison</span>
+        <span>Split screen vs flat space</span>
         <label class="toggle-switch">
           <input type="checkbox" id="toggle-split-screen">
           <span class="slider"></span>
@@ -195,88 +193,12 @@
         <input type="range" id="param-disk-temp" min="1000" max="15000" step="100" value="6500">
       </div>
 
-      <!-- Color Spectrum Profile Selector -->
-      <div class="control-group">
-        <label for="param-spectrum-mode">
-          <span>Color Spectrum Profile</span>
-        </label>
-        <select id="param-spectrum-mode" style="width: 100%; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--panel-border); color: var(--color-text-main); padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; outline: none; transition: var(--transition-smooth); cursor: pointer;">
-          <option value="0">Planckian (Realistic Thermal)</option>
-          <option value="1">Nebula Glow (Violet & Magenta)</option>
-          <option value="2">Plasma Fire (Orange & Gold)</option>
-          <option value="3">Quantum Shift (Cyan & Neon)</option>
-        </select>
-      </div>
-
       <div class="control-group">
         <label for="param-steps">
-          <span>Quality (Max Steps)</span>
-          <span class="val-bubble" id="val-steps">60</span>
+          <span>Max integration steps</span>
+          <span class="val-bubble" id="val-steps">150</span>
         </label>
-        <input type="range" id="param-steps" min="30" max="300" step="10" value="60">
-      </div>
-    </section>
-
-    <!-- Constructive Solid Geometry (CSG) Panel -->
-    <section class="panel csg-panel">
-      <h3>CSG Geometry & Mechanics</h3>
-
-      <div class="control-group">
-        <label for="param-csg-mode">
-          <span>CSG Operation</span>
-        </label>
-        <select id="param-csg-mode" style="width: 100%; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--panel-border); color: var(--color-text-main); padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; outline: none; transition: var(--transition-smooth); cursor: pointer;">
-          <option value="0">Disabled (Black Hole Only)</option>
-          <option value="1">Union (Main + Satellite)</option>
-          <option value="2">Smooth Min (Organic Blend)</option>
-          <option value="3">Boolean Subtraction</option>
-          <option value="4">CSG Intersection</option>
-        </select>
-      </div>
-
-      <div class="control-group">
-        <label for="param-csg-blend">
-          <span>Smooth Blend Factor (k)</span>
-          <span class="val-bubble" id="val-csg-blend">0.50</span>
-        </label>
-        <input type="range" id="param-csg-blend" min="0.05" max="1.50" step="0.05" value="0.50">
-      </div>
-    </section>
-
-    <!-- Lighting & Shadows Panel -->
-    <section class="panel lighting-panel">
-      <h3>Lighting & Shadows</h3>
-
-      <div class="control-row">
-        <span>Soft Shadows (Cone Tracing)</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-soft-shadows">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-group">
-        <label for="param-shadow-k">
-          <span>Penumbra Softness</span>
-          <span class="val-bubble" id="val-shadow-k">16.0</span>
-        </label>
-        <input type="range" id="param-shadow-k" min="4.0" max="32.0" step="1.0" value="16.0">
-      </div>
-
-      <div class="control-row">
-        <span>SDF Ambient Occlusion</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-ao">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="control-group">
-        <label for="param-ao-intensity">
-          <span>AO Intensity</span>
-          <span class="val-bubble" id="val-ao-intensity">1.00</span>
-        </label>
-        <input type="range" id="param-ao-intensity" min="0.2" max="2.5" step="0.05" value="1.00">
+        <input type="range" id="param-steps" min="30" max="300" step="10" value="150">
       </div>
     </section>
 
@@ -289,12 +211,12 @@
           <span class="stat-val" id="stat-fps">-- FPS</span>
         </div>
         <div class="stat-box">
-          <span class="stat-label">Horizon (R_s)</span>
-          <span class="stat-val" id="stat-horizon">3.60 m</span>
+          <span class="stat-label">Horizon 2M</span>
+          <span class="stat-val" id="stat-horizon">3.60</span>
         </div>
         <div class="stat-box">
-          <span class="stat-label">Photon Sphere</span>
-          <span class="stat-val" id="stat-photon-sphere">5.40 m</span>
+          <span class="stat-label">Photon sphere 3M</span>
+          <span class="stat-val" id="stat-photon-sphere">5.40</span>
         </div>
       </div>
     </section>
@@ -306,7 +228,6 @@
         <button class="tab-btn active" data-tab="lensing">Lensing</button>
         <button class="tab-btn" data-tab="disk">Accretion</button>
         <button class="tab-btn" data-tab="beaming">Doppler</button>
-        <button class="tab-btn" data-tab="kerr">Kerr</button>
       </div>
       <div class="tab-content" id="tab-lensing">
         <p><strong>Gravitational Lensing:</strong> The strong gravitational field of the black hole warps spacetime, forcing photons to follow curved paths. Light from behind the black hole is focused toward the observer, producing visual double images, distorted arches, and circular <strong>Einstein Rings</strong>.</p>
@@ -317,13 +238,9 @@
       <div class="tab-content hidden" id="tab-beaming">
         <p><strong>Doppler Beaming:</strong> The side of the accretion disk rotating toward you appears significantly brighter and hotter (blueshifted) due to relativistic velocity. The side rotating away is dimmer and redder (redshifted).</p>
       </div>
-      <div class="tab-content hidden" id="tab-kerr">
-        <p><strong>Frame Dragging:</strong> A rotating (Kerr) black hole drags the very fabric of spacetime around with it. This breaks the spherical symmetry of the lensing and accretion disk, shifting the photon sphere and horizon shape relative to the spin axis.</p>
-      </div>
     </div>
   </div>
 
-  <!-- Custom mouse navigation helper text -->
   <div class="interaction-hint">
     Drag to rotate camera • Scroll to zoom
   </div>
@@ -332,52 +249,34 @@
   <div id="info-modal" class="modal-overlay hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Physics & Simulator Guide</h2>
+        <h2>How this works</h2>
         <button id="modal-close" class="btn-close">&times;</button>
       </div>
       <div class="modal-body">
-        <p>This simulator renders a <strong>Schwarzschild / Kerr Black Hole</strong> in real-time by tracing individual photon trajectories (null geodesics) through a gravitationally curved spacetime.</p>
-        
+        <p>This renders a non-rotating <strong>Schwarzschild black hole</strong> by tracing one light ray per pixel backwards from the camera through curved spacetime.</p>
+
         <div class="physics-section">
-          <h4>1. General Relativity & Bending of Light</h4>
-          <p>Light rays travel along curved paths around the mass. The integration uses a <strong>4th-Order Runge-Kutta (RK4)</strong> solver to step the photon through the geodesic equation.</p>
-          <div class="physics-eqn">
-            Radial Gravitational Force: a_grav = -M * (1 + u)⁵ * (2 - u) / (r³ * (1 - u)³) * x
-          </div>
-          <p style="font-size: 0.75rem; font-style: italic;">Where M is mass, r is radius, and u = M / (2 * r) in isotropic coordinates.</p>
+          <h4>1. Bending of light</h4>
+          <p>In isotropic coordinates, light in Schwarzschild spacetime behaves like light in a medium whose refractive index grows near the black hole. Each ray is stepped with a 4th-order Runge-Kutta (RK4) integrator.</p>
+          <div class="physics-eqn">n(r) = (1 + u)³ / (1 − u),  u = M / 2r</div>
+          <p style="font-size: 0.75rem; font-style: italic;">Units are geometric (G = c = 1). The horizon sits at isotropic r = M/2, which is the areal radius R = 2M.</p>
         </div>
 
         <div class="physics-section">
-          <h4>2. Black Hole Spin (Frame Dragging)</h4>
-          <p>A rotating (Kerr) black hole drags spacetime itself in the direction of spin. Spacetime rotation applies a <strong>gravitational Coriolis force</strong> that deflects light asymmetrically.</p>
-          <div class="physics-eqn">
-            Frame Dragging: ω = 2 * J / (r³ * (1 + u)⁶),  F_dragging = 2 * (v x ω)
-          </div>
-          <p style="font-size: 0.75rem; font-style: italic;">Where J = M * spin is the angular momentum, v is velocity, and ω is frame dragging vector.</p>
+          <h4>2. Accretion disk</h4>
+          <p>The disk is a volumetric emitter with a Gaussian vertical profile and procedural turbulence. Its density, temperature profile and edges are artistic choices, not a physical disk model.</p>
         </div>
 
         <div class="physics-section">
-          <h4>3. Accretion Disk Physics (True 3D Volumetric)</h4>
-          <p>Superheated plasma orbits the event horizon at relativistic speeds. Rather than using a simplified flat plane intersection, the simulator integrates emission and absorption step-by-step through the 3D volume of the disk. Vertical noise shear is applied to construct volumetric swirls.</p>
-          <div class="physics-eqn">
-            Thickness & Density: ρ(r, z) = ρ_density * (r_in / r_xy)²·⁵ * exp(-z² / (2 * disk_thickness²))
-          </div>
+          <h4>3. Doppler and gravitational shifts</h4>
+          <p>Gas moving toward the camera looks hotter and brighter; light climbing out of the gravity well loses energy. Both are applied to the disk colour.</p>
+          <div class="physics-eqn">g = g_doppler × g_grav,  T_observed = g × T_emitted</div>
+          <p style="font-size: 0.75rem; font-style: italic;">The current Doppler factor uses the gas velocity in flat-space form; a fully covariant version is planned.</p>
         </div>
 
         <div class="physics-section">
-          <h4>4. Doppler Beaming & Gravitational Redshift</h4>
-          <p>The disk is highly asymmetrical due to two factors: (1) <strong>Doppler Beaming</strong> makes gas traveling towards you appear blindingly bright (blueshifted) and gas traveling away look dim (redshifted). (2) <strong>Gravitational Redshift</strong> drains light energy as it climbs out of the gravity well.</p>
-          <div class="physics-eqn">
-            Total Shift: g_total = g_doppler * g_grav,  T_observed = T_disk * g_total
-          </div>
-        </div>
-
-        <div class="physics-section">
-          <h4>5. Blackbody Radiation Fit</h4>
-          <p>Colors are calculated by evaluating the observed temperature at each point in the disk and mapping the Planckian emission spectrum to standard sRGB space.</p>
-          <div class="physics-eqn">
-            Planck Law: B_ν(T) = (2*h*ν³ / c²) * [ 1 / (e^(h*ν / k_B*T) - 1) ]
-          </div>
+          <h4>4. What's next</h4>
+          <p>The physics here is being replaced by a spacetime compiler that generates the ray equations for any metric, including spinning (Kerr) black holes and wormholes.</p>
         </div>
       </div>
     </div>

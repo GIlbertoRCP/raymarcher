@@ -18,7 +18,18 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
-// Custom Glassmorphic Dark Theme for Dear ImGui
+// Aborts with a readable message when a CUDA call fails.
+#define CUDA_CHECK(call)                                                        \
+    do {                                                                        \
+        cudaError_t err_ = (call);                                              \
+        if (err_ != cudaSuccess) {                                              \
+            std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ << ": " \
+                      << cudaGetErrorString(err_) << "\n";                       \
+            std::exit(1);                                                       \
+        }                                                                       \
+    } while (0)
+
+// Dark theme for Dear ImGui
 void setup_imgui_style() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding = 10.0f;
@@ -31,7 +42,7 @@ void setup_imgui_style() {
     style.ItemSpacing = ImVec2(8.0f, 8.0f);
 
     ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg]           = ImVec4(0.04f, 0.05f, 0.09f, 0.82f); // Glass translucent
+    colors[ImGuiCol_WindowBg]           = ImVec4(0.04f, 0.05f, 0.09f, 0.82f);
     colors[ImGuiCol_Header]             = ImVec4(0.12f, 0.20f, 0.32f, 0.80f);
     colors[ImGuiCol_HeaderHovered]      = ImVec4(0.18f, 0.35f, 0.55f, 0.90f);
     colors[ImGuiCol_HeaderActive]       = ImVec4(0.00f, 0.70f, 0.90f, 1.00f);
@@ -161,8 +172,8 @@ inline void loadGLExtensions() {
 
 // Global simulation states
 static SimulationSettings settings;
-static float camRadius = 12.0f;
-static float camPitch = 0.15f; // slightly tilted down
+static float camRadius = 22.0f;
+static float camPitch = 0.12f; // slightly above the disk plane
 static float camYaw = 0.0f;
 
 static bool isDragging = false;
@@ -244,128 +255,101 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     if (ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse) return;
     camRadius -= (float)yoffset * 0.5f;
     if (camRadius < 4.0f) camRadius = 4.0f;
-    if (camRadius > 30.0f) camRadius = 30.0f;
+    if (camRadius > 40.0f) camRadius = 40.0f;
 }
 
 static bool triggerBenchmark = false;
 
-// Automated Benchmark Suite across 1080p, 1440p, 4K and Workgroup Block Configurations
-void run_benchmark_suite(SimulationSettings currentSettings, cudaTextureObject_t noiseTex) {
-    std::cout << "\n=========================================================================================================\n";
-    std::cout << "                   CUDA RAYMARCHER AUTOMATED PARALLEL COMPUTING BENCHMARK SUITE                          \n";
-    std::cout << "=========================================================================================================\n";
-    std::cout << " Config: Max Steps = " << currentSettings.max_steps << " | Mass = " << currentSettings.mass
-              << " | Spin = " << currentSettings.spin << " | Relativity = " << (currentSettings.relativity ? "ON" : "OFF") << "\n";
-    std::cout << "---------------------------------------------------------------------------------------------------------\n";
-    std::cout << " Res   | Block Dim | Spatial Accel | Frame Time (ms) |    FPS    | Ray Steps / Px | Throughput (GB/s)\n";
-    std::cout << "-------+-----------+---------------+-----------------+-----------+----------------+------------------\n";
-
+// Benchmark: renders the current scene at 1080p, 1440p and 4K with several
+// thread block shapes, timing the kernel with CUDA events. Writes
+// benchmark_report.json in the working directory.
+void run_benchmark_suite(SimulationSettings currentSettings, cudaTextureObject_t noiseTex, const std::string& gpuName) {
     struct ResConfig { const char* name; int w; int h; };
-    ResConfig configs[] = {
+    const ResConfig configs[] = {
         { "1080p", 1920, 1080 },
         { "1440p", 2560, 1440 },
         { "4K",    3840, 2160 }
     };
+    struct BlockConfig { int x; int y; };
+    const BlockConfig blocks[] = { {16, 16}, {32, 8}, {8, 8} };
+    const int num_frames = 30;
 
-    struct BlockConfig { int x; int y; const char* name; };
-    BlockConfig blocks[] = {
-        { 16, 16, "16x16" },
-        { 32,  8, "32x8"  },
-        { 32, 32, "32x32" },
-        {  8,  8, "8x8"   }
-    };
+    printf("\nBenchmark on %s | mass %.2f | max steps %d | camera r = %.1f\n",
+           gpuName.c_str(), currentSettings.mass, currentSettings.max_steps, camRadius);
+    printf(" Res   | Block | Frame (ms) |   FPS   | Mrays/s | Steps/ray | Msteps/s\n");
+    printf("-------+-------+------------+---------+---------+-----------+---------\n");
 
     cudaEvent_t startEvent, stopEvent;
-    cudaEventCreate(&startEvent);
-    cudaEventCreate(&stopEvent);
-
+    CUDA_CHECK(cudaEventCreate(&startEvent));
+    CUDA_CHECK(cudaEventCreate(&stopEvent));
     unsigned long long* d_step_counter = nullptr;
-    cudaMalloc(&d_step_counter, sizeof(unsigned long long));
+    CUDA_CHECK(cudaMalloc(&d_step_counter, sizeof(unsigned long long)));
 
     FILE* jsonFile = fopen("benchmark_report.json", "w");
-    if (jsonFile) fprintf(jsonFile, "[\n");
+    if (jsonFile) {
+        fprintf(jsonFile, "{\n  \"gpu\": \"%s\",\n  \"mass\": %.3f,\n  \"max_steps\": %d,\n  \"camera_radius\": %.3f,\n  \"frames_per_run\": %d,\n  \"runs\": [\n",
+                gpuName.c_str(), currentSettings.mass, currentSettings.max_steps, camRadius, num_frames);
+    }
 
-    int testIndex = 0;
-    int totalTests = 3 * 4;
-
-    for (int i = 0; i < 3; ++i) {
-        int w = configs[i].w;
-        int h = configs[i].h;
-        size_t bufferSize = (size_t)w * h * sizeof(float4);
-
+    bool first = true;
+    for (const ResConfig& res : configs) {
+        size_t bufferSize = (size_t)res.w * res.h * sizeof(float4);
         float4* d_output = nullptr;
-        cudaMalloc(&d_output, bufferSize);
+        CUDA_CHECK(cudaMalloc(&d_output, bufferSize));
 
-        for (int b = 0; b < 4; ++b) {
-            testIndex++;
+        for (const BlockConfig& block : blocks) {
             SimulationSettings bSettings = currentSettings;
-            bSettings.resolution = make_float2((float)w, (float)h);
-            bSettings.block_dim_x = blocks[b].x;
-            bSettings.block_dim_y = blocks[b].y;
-            bSettings.spatial_accel = 1;
+            bSettings.resolution = make_float2((float)res.w, (float)res.h);
+            bSettings.block_dim_x = block.x;
+            bSettings.block_dim_y = block.y;
+            bSettings.heatmap_mode = 0;
 
-            // Warmup passes
             for (int warmup = 0; warmup < 3; ++warmup) {
-                run_raymarch_kernel(d_output, nullptr, bSettings, noiseTex);
+                CUDA_CHECK(run_raymarch_kernel(d_output, nullptr, bSettings, noiseTex));
             }
+            CUDA_CHECK(cudaMemset(d_step_counter, 0, sizeof(unsigned long long)));
 
-            cudaMemset(d_step_counter, 0, sizeof(unsigned long long));
-
-            const int num_frames = 30;
-            cudaEventRecord(startEvent);
+            CUDA_CHECK(cudaEventRecord(startEvent));
             for (int f = 0; f < num_frames; ++f) {
                 bSettings.time += 0.016f;
-                run_raymarch_kernel(d_output, d_step_counter, bSettings, noiseTex);
+                CUDA_CHECK(run_raymarch_kernel(d_output, d_step_counter, bSettings, noiseTex));
             }
-            cudaEventRecord(stopEvent);
-            cudaEventSynchronize(stopEvent);
+            CUDA_CHECK(cudaEventRecord(stopEvent));
+            CUDA_CHECK(cudaEventSynchronize(stopEvent));
 
             float total_ms = 0.0f;
-            cudaEventElapsedTime(&total_ms, startEvent, stopEvent);
+            CUDA_CHECK(cudaEventElapsedTime(&total_ms, startEvent, stopEvent));
+            unsigned long long total_steps = 0;
+            CUDA_CHECK(cudaMemcpy(&total_steps, d_step_counter, sizeof(unsigned long long), cudaMemcpyDeviceToHost));
 
-            unsigned long long h_step_counter = 0;
-            cudaMemcpy(&h_step_counter, d_step_counter, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+            double frame_ms = total_ms / num_frames;
+            double rays = (double)res.w * res.h;
+            double steps_per_ray = (double)total_steps / (rays * num_frames);
+            double mrays_per_s = rays / (frame_ms * 1e-3) / 1e6;
+            double msteps_per_s = (double)total_steps / (total_ms * 1e-3) / 1e6;
 
-            float avg_frame_time = total_ms / (float)num_frames;
-            float fps = 1000.0f / fmaxf(avg_frame_time, 0.001f);
-            double total_pixels = (double)w * (double)h;
-            double avg_steps_per_px = (double)h_step_counter / (total_pixels * (double)num_frames);
-
-            double bytes_per_frame = (double)bufferSize + (double)h_step_counter / (double)num_frames * 16.0;
-            double throughput_gbps = (bytes_per_frame / (avg_frame_time * 1e-3)) / 1e9;
-
-            printf(" %-5s | %-9s | %-13s | %15.3f | %9.1f | %14.2f | %16.2f\n",
-                   configs[i].name, blocks[b].name, "ENABLED", avg_frame_time, fps, avg_steps_per_px, throughput_gbps);
+            printf(" %-5s | %2dx%-2d | %10.3f | %7.1f | %7.1f | %9.1f | %7.0f\n",
+                   res.name, block.x, block.y, frame_ms, 1000.0 / frame_ms, mrays_per_s, steps_per_ray, msteps_per_s);
 
             if (jsonFile) {
-                fprintf(jsonFile, "  {\n");
-                fprintf(jsonFile, "    \"resolution\": \"%s\",\n", configs[i].name);
-                fprintf(jsonFile, "    \"width\": %d,\n", w);
-                fprintf(jsonFile, "    \"height\": %d,\n", h);
-                fprintf(jsonFile, "    \"block_dim_x\": %d,\n", blocks[b].x);
-                fprintf(jsonFile, "    \"block_dim_y\": %d,\n", blocks[b].y);
-                fprintf(jsonFile, "    \"spatial_accel\": 1,\n");
-                fprintf(jsonFile, "    \"avg_frame_time_ms\": %.3f,\n", avg_frame_time);
-                fprintf(jsonFile, "    \"fps\": %.2f,\n", fps);
-                fprintf(jsonFile, "    \"avg_steps_per_pixel\": %.2f,\n", avg_steps_per_px);
-                fprintf(jsonFile, "    \"memory_throughput_gbps\": %.2f\n", throughput_gbps);
-                fprintf(jsonFile, "  }%s\n", (testIndex == totalTests ? "" : ","));
+                fprintf(jsonFile, "%s    {\"resolution\": \"%s\", \"width\": %d, \"height\": %d, \"block\": [%d, %d], "
+                                  "\"frame_ms\": %.4f, \"mrays_per_s\": %.2f, \"steps_per_ray\": %.2f, \"msteps_per_s\": %.1f}",
+                        first ? "" : ",\n", res.name, res.w, res.h, block.x, block.y,
+                        frame_ms, mrays_per_s, steps_per_ray, msteps_per_s);
+                first = false;
             }
         }
-
-        cudaFree(d_output);
+        CUDA_CHECK(cudaFree(d_output));
     }
 
     if (jsonFile) {
-        fprintf(jsonFile, "]\n");
+        fprintf(jsonFile, "\n  ]\n}\n");
         fclose(jsonFile);
-        std::cout << "\n[Benchmark] Performance report exported cleanly to benchmark_report.json\n";
+        printf("Wrote benchmark_report.json\n");
     }
-
-    cudaFree(d_step_counter);
-    cudaEventDestroy(startEvent);
-    cudaEventDestroy(stopEvent);
-    std::cout << "=========================================================================================================\n\n";
+    CUDA_CHECK(cudaFree(d_step_counter));
+    CUDA_CHECK(cudaEventDestroy(startEvent));
+    CUDA_CHECK(cudaEventDestroy(stopEvent));
 }
 
 // GLFW keyboard callback
@@ -384,16 +368,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         } else if (key == GLFW_KEY_D) {
             settings.disk = !settings.disk;
             std::cout << "Accretion Disk: " << (settings.disk ? "ENABLED" : "DISABLED") << "\n";
-        } else if (key == GLFW_KEY_M) {
-            settings.csg_mode = (settings.csg_mode + 1) % 5;
-            const char* csg_names[] = { "Disabled", "Union", "Smooth Min", "Subtraction", "Intersection" };
-            std::cout << "CSG Mode: " << csg_names[settings.csg_mode] << "\n";
-        } else if (key == GLFW_KEY_N) {
-            settings.soft_shadows = !settings.soft_shadows;
-            std::cout << "Soft Shadows: " << (settings.soft_shadows ? "ENABLED" : "DISABLED") << "\n";
-        } else if (key == GLFW_KEY_A) {
-            settings.ao_enabled = !settings.ao_enabled;
-            std::cout << "SDF Ambient Occlusion: " << (settings.ao_enabled ? "ENABLED" : "DISABLED") << "\n";
         } else if (key == GLFW_KEY_G) {
             settings.grid = !settings.grid;
             if (settings.grid) settings.stars = 0;
@@ -413,21 +387,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         } else if (key == GLFW_KEY_DOWN) {
             settings.mass = fmaxf(0.0f, settings.mass - 0.1f);
             std::cout << "Mass: " << settings.mass << "\n";
-        } else if (key == GLFW_KEY_RIGHT) {
-            settings.spin = fminf(0.99f, settings.spin + 0.05f);
-            std::cout << "Spin parameter a: " << settings.spin << "\n";
-        } else if (key == GLFW_KEY_LEFT) {
-            settings.spin = fmaxf(0.0f, settings.spin - 0.05f);
-            std::cout << "Spin parameter a: " << settings.spin << "\n";
         } else if (key == GLFW_KEY_PAGE_UP) {
             settings.max_steps = std::min(300, settings.max_steps + 10);
             std::cout << "Max Steps: " << settings.max_steps << "\n";
         } else if (key == GLFW_KEY_PAGE_DOWN) {
             settings.max_steps = std::max(10, settings.max_steps - 10);
             std::cout << "Max Steps: " << settings.max_steps << "\n";
-        } else if (key == GLFW_KEY_C) {
-            settings.spectrum_mode = (settings.spectrum_mode + 1) % 4;
-            std::cout << "Spectrum Mode: " << settings.spectrum_mode << "\n";
         } else if (key == GLFW_KEY_V) {
             settings.shift_visualizer = !settings.shift_visualizer;
             std::cout << "Redshift Visualizer: " << (settings.shift_visualizer ? "ENABLED" : "DISABLED") << "\n";
@@ -454,17 +419,15 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 }
 
 int main(int argc, char** argv) {
-    // 1. Initial configuration setup (Safe minimal mode)
-    settings.resolution = make_float2(960.0f, 540.0f); // Render at safe minimal 540p resolution
+    settings.resolution = make_float2(960.0f, 540.0f);
     settings.time = 0.0f;
     settings.mass = 1.80f;
-    settings.spin = 0.60f;
     settings.relativity = 1;
     settings.disk = 1;
     settings.grid = 0;
     settings.stars = 1;
     settings.disk_temp = 6500.0f;
-    settings.max_steps = 60; // Minimal step count to prevent GPU strain
+    settings.max_steps = 150;
     settings.disk_thickness = 0.08f;
     settings.disk_density = 1.00f;
     settings.bloom_intensity = 1.00f;
@@ -473,29 +436,9 @@ int main(int argc, char** argv) {
     settings.shift_visualizer = 0;
     settings.split_active = 0;
     settings.split_x = 0.5f;
-    settings.spectrum_mode = 0;
     settings.fov_scale = 0.577f;
-    
-    // CSG & Lighting Defaults
-    settings.csg_mode = 0;
-    settings.csg_blend = 0.5f;
-    settings.soft_shadows = 0;
-    settings.shadow_k = 16.0f;
-    settings.ao_enabled = 0;
-    settings.ao_intensity = 1.0f;
-
-    // GW, TAA & Polarization Defaults
-    settings.gw_enabled = 0;
-    settings.gw_amplitude = 0.05f;
-    settings.gw_frequency = 1.20f;
-    settings.polarization_mode = 0;
-    settings.taa_enabled = 0;
-    settings.taa_blend = 0.15f;
-
-    // CUDA Optimization & Diagnostics Defaults
     settings.block_dim_x = 32;
     settings.block_dim_y = 8;
-    settings.spatial_accel = 1;
     settings.heatmap_mode = 0;
 
     bool runBenchmarkOnly = false;
@@ -509,8 +452,8 @@ int main(int argc, char** argv) {
             settings.resolution.y = (float)atof(argv[++i]);
         } else if (strcmp(argv[i], "--mass") == 0 && i + 1 < argc) {
             settings.mass = (float)atof(argv[++i]);
-        } else if (strcmp(argv[i], "--spin") == 0 && i + 1 < argc) {
-            settings.spin = (float)atof(argv[++i]);
+        } else if (strcmp(argv[i], "--steps") == 0 && i + 1 < argc) {
+            settings.max_steps = atoi(argv[++i]);
         }
     }
 
@@ -547,8 +490,23 @@ int main(int argc, char** argv) {
     cudaTextureObject_t noiseTex = 0;
     cudaCreateTextureObject(&noiseTex, &resDesc, &texDesc, NULL);
 
+    std::string gpuDeviceName = "unknown GPU";
+    int gpuComputeCapability = 0;
+    {
+        int deviceCount = 0;
+        CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
+        cudaDeviceProp prop;
+        CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+        gpuDeviceName = prop.name;
+        gpuComputeCapability = prop.major * 10 + prop.minor;
+        std::cout << "GPU: " << gpuDeviceName << " (sm_" << gpuComputeCapability << ", "
+                  << prop.totalGlobalMem / (1024 * 1024) << " MB)\n";
+    }
+
+    updateCamera();
+
     if (runBenchmarkOnly) {
-        run_benchmark_suite(settings, noiseTex);
+        run_benchmark_suite(settings, noiseTex, gpuDeviceName);
         cudaDestroyTextureObject(noiseTex);
         cudaFreeArray(cuArray);
         delete[] noise_data;
@@ -567,7 +525,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     
     // Open window of width 1280x720 (resizable)
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Relativistic Black Hole CUDA Live Viewer", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "Raymarcher (CUDA)", NULL, NULL);
     if (!window) {
         std::cerr << "Error: Failed to create GLFW window.\n";
         glfwTerminate();
@@ -606,44 +564,9 @@ int main(int argc, char** argv) {
     cudaEventCreate(&liveStop);
     cudaMalloc((void**)&d_live_step_counter, sizeof(unsigned long long));
 
-    // Allocate VRAM history buffer for Temporal Anti-Aliasing (TAA)
-    float4* d_history_buffer = nullptr;
-    cudaMalloc((void**)&d_history_buffer, width * height * sizeof(float4));
-    cudaMemset(d_history_buffer, 0, width * height * sizeof(float4));
-
-    // Multi-GPU Device & Topology Detection
-    int deviceCount = 0;
-    std::string gpuDeviceName = "NVIDIA GPU Target";
-    int gpuComputeCapability = 75;
-    size_t gpuVRAMTotalMB = 0;
-    cudaGetDeviceCount(&deviceCount);
-    if (deviceCount > 0) {
-        cudaDeviceProp prop;
-        cudaGetDeviceProperties(&prop, 0);
-        gpuDeviceName = prop.name;
-        gpuComputeCapability = prop.major * 10 + prop.minor;
-        gpuVRAMTotalMB = prop.totalGlobalMem / (1024 * 1024);
-        std::cout << "[CUDA Hardware Engine] Detected " << deviceCount << " GPU Device(s). Primary: "
-                  << gpuDeviceName << " (sm_" << gpuComputeCapability << ", " << gpuVRAMTotalMB << " MB VRAM)\n";
-    }
-    
     // Print keyboard instructions
-    std::cout << "=========================================================\n";
-    std::cout << " Relativistic Black Hole Raymarcher - Live CUDA Desktop\n";
-    std::cout << "=========================================================\n";
-    std::cout << " Interactive Controls (GUI Overlay + Shortcuts):\n";
-    std::cout << " - Mouse Left Drag : Orbit camera angle rotation\n";
-    std::cout << " - Mouse Scroll    : Zoom camera distance in / out\n";
-    std::cout << " - [Space]         : Pause / Resume accretion disk spin animation\n";
-    std::cout << " - [B]             : Run Automated Performance Benchmark Suite (1080p, 1440p, 4K)\n";
-    std::cout << " - [M]             : Cycle CSG Mode (None, Union, Smooth Min, Subtraction, Intersection)\n";
-    std::cout << " - [N]             : Toggle Soft Shadows (Cone Tracing)\n";
-    std::cout << " - [A]             : Toggle SDF Ambient Occlusion\n";
-    std::cout << " - [R]             : Toggle Relativistic Lensing vs Newtonian space\n";
-    std::cout << " - [D]             : Toggle Accretion Disk visualization\n";
-    std::cout << " - [P]             : Take snapshot BMP image\n";
-    std::cout << " - [ESC]           : Exit application\n";
-    std::cout << "=========================================================\n";
+    std::cout << "Controls: drag to orbit, scroll to zoom, [Space] pause, [B] benchmark,\n"
+              << "          [R] lensing on/off, [D] disk, [G] grid, [S] stars, [P] snapshot, [Esc] quit\n";
     
     // 3. Set up OpenGL Texture to map rendering buffer
     GLuint tex;
@@ -682,7 +605,7 @@ int main(int argc, char** argv) {
 
         if (triggerBenchmark) {
             triggerBenchmark = false;
-            run_benchmark_suite(settings, noiseTex);
+            run_benchmark_suite(settings, noiseTex, gpuDeviceName);
         }
         
         // Advance time if animation is not paused
@@ -723,11 +646,6 @@ int main(int argc, char** argv) {
 
             cudaGraphicsGLRegisterBuffer(&cuda_pbo_resource, pbo, cudaGraphicsRegisterFlagsWriteDiscard);
 
-            if (d_history_buffer) {
-                cudaFree(d_history_buffer);
-                cudaMalloc((void**)&d_history_buffer, width * height * sizeof(float4));
-                cudaMemset(d_history_buffer, 0, width * height * sizeof(float4));
-            }
         }
         
         // Map OpenGL Pixel Buffer Object to CUDA memory space
@@ -739,11 +657,7 @@ int main(int argc, char** argv) {
         // Launch parallel CUDA raymarch kernel with precise execution timing
         cudaMemset(d_live_step_counter, 0, sizeof(unsigned long long));
         cudaEventRecord(liveStart);
-        run_raymarch_kernel(d_output, d_live_step_counter, settings, noiseTex);
-
-        if (settings.taa_enabled && d_history_buffer) {
-            apply_temporal_reprojection(d_output, d_history_buffer, width, height, settings.taa_blend);
-        }
+        CUDA_CHECK(run_raymarch_kernel(d_output, d_live_step_counter, settings, noiseTex));
 
         cudaEventRecord(liveStop);
         cudaEventSynchronize(liveStop);
@@ -784,7 +698,7 @@ int main(int argc, char** argv) {
             my_glGetBufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, width * height * sizeof(float4), hostBuffer);
             my_glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
             
-            std::string snapName = "blackhole_snap_" + std::to_string((unsigned int)std::time(nullptr)) + ".bmp";
+            std::string snapName = "raymarcher_snap_" + std::to_string((unsigned int)std::time(nullptr)) + ".bmp";
             save_bmp(snapName.c_str(), hostBuffer, width, height);
             delete[] hostBuffer;
         }
@@ -814,12 +728,12 @@ int main(int argc, char** argv) {
         ImGui::SetNextWindowPos(ImVec2(15, 15), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(410, 720), ImGuiCond_FirstUseEver);
 
-        if (ImGui::Begin("Event Horizon - CUDA Controls", nullptr, ImGuiWindowFlags_AlwaysUseWindowPadding)) {
-            ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "NVIDIA CUDA Raymarcher v2.0");
+        if (ImGui::Begin("Raymarcher", nullptr, ImGuiWindowFlags_AlwaysUseWindowPadding)) {
+            ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "Schwarzschild black hole (CUDA)");
             ImGui::Separator();
 
             // Real-Time CUDA Profiler & Telemetry Panel
-            if (ImGui::CollapsingHeader("Real-Time CUDA Profiler & Metrics", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::Text("GPU Device: %s (sm_%d)", gpuDeviceName.c_str(), gpuComputeCapability);
                 float fpsVal = (framesCounted > 0) ? (float)framesCounted / (float)(currentFrameTime - lastFPSTime + 1e-4) : (1000.0f / fmaxf(kernelTimeMs, 0.001f));
                 ImGui::Text("Viewport FPS: %.1f FPS", fpsVal);
@@ -830,14 +744,13 @@ int main(int argc, char** argv) {
                 float vramFraction = (float)(usedVRAM_MB / fmax(totalVRAM_MB, 1.0));
                 ImGui::ProgressBar(vramFraction, ImVec2(-1, 14));
 
-                ImGui::Text("Rays Throughput: %.2f Million Rays/sec", mRaysPerSec);
-                ImGui::Text("Step Throughput: %.2f Million Steps/sec", mStepsPerSec);
-                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "[NVIDIA CUDA Cores Active]");
+                ImGui::Text("Rays: %.1f M/s", mRaysPerSec);
+                ImGui::Text("Integration steps: %.1f M/s (%.1f per ray)", mStepsPerSec, hostRaySteps / fmax(totalPixels, 1.0));
             }
             ImGui::Separator();
 
             // Thread Block & Hardware Optimization Tuning Panel
-            if (ImGui::CollapsingHeader("CUDA Thread Block & Acceleration Tuning", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader("Kernel launch", ImGuiTreeNodeFlags_DefaultOpen)) {
                 int current_block_cfg = 1;
                 if (settings.block_dim_x == 16 && settings.block_dim_y == 16) current_block_cfg = 0;
                 else if (settings.block_dim_x == 32 && settings.block_dim_y == 8) current_block_cfg = 1;
@@ -852,11 +765,6 @@ int main(int argc, char** argv) {
                     else if (current_block_cfg == 3) { settings.block_dim_x = 8; settings.block_dim_y = 8; }
                 }
 
-                bool spatial_accel_bool = settings.spatial_accel != 0;
-                if (ImGui::Checkbox("Spatial Bounding Acceleration", &spatial_accel_bool)) {
-                    settings.spatial_accel = spatial_accel_bool ? 1 : 0;
-                }
-
                 bool heatmap_bool = settings.heatmap_mode != 0;
                 if (ImGui::Checkbox("Ray-Step Heatmap Visualizer", &heatmap_bool)) {
                     settings.heatmap_mode = heatmap_bool ? 1 : 0;
@@ -866,31 +774,25 @@ int main(int argc, char** argv) {
 
             // Presets
             ImGui::Text("Presets:");
-            if (ImGui::Button("Gargantua")) {
-                settings.mass = 1.80f; settings.spin = 0.60f; settings.relativity = 1; settings.disk = 1;
-                settings.disk_temp = 6500.0f; settings.disk_thickness = 0.08f; settings.disk_density = 1.0f; settings.spectrum_mode = 0;
+            if (ImGui::Button("Standard")) {
+                settings.mass = 1.80f; settings.relativity = 1; settings.disk = 1;
+                settings.disk_temp = 6500.0f; settings.disk_thickness = 0.08f; settings.disk_density = 1.0f;
             }
             ImGui::SameLine();
-            if (ImGui::Button("Micro-BH")) {
-                settings.mass = 3.50f; settings.spin = 0.00f; settings.relativity = 1; settings.disk = 1;
-                settings.disk_temp = 11000.0f; settings.disk_thickness = 0.04f; settings.disk_density = 3.0f; settings.spectrum_mode = 1;
+            if (ImGui::Button("Massive")) {
+                settings.mass = 3.50f; settings.relativity = 1; settings.disk = 1;
+                settings.disk_temp = 11000.0f; settings.disk_thickness = 0.04f; settings.disk_density = 3.0f;
             }
             ImGui::SameLine();
-            if (ImGui::Button("Kerr")) {
-                settings.mass = 1.50f; settings.spin = 0.98f; settings.relativity = 1; settings.disk = 1;
-                settings.disk_temp = 9500.0f; settings.disk_thickness = 0.12f; settings.disk_density = 1.2f; settings.spectrum_mode = 2;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Newtonian")) {
-                settings.mass = 0.0f; settings.spin = 0.0f; settings.relativity = 0; settings.disk = 1;
-                settings.disk_temp = 6000.0f; settings.spectrum_mode = 0;
+            if (ImGui::Button("Flat space")) {
+                settings.mass = 0.0f; settings.relativity = 0; settings.disk = 1;
+                settings.disk_temp = 6000.0f;
             }
 
             ImGui::Separator();
 
             if (ImGui::CollapsingHeader("Spacetime & Render Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::SliderFloat("Mass (M)", &settings.mass, 0.1f, 4.0f, "%.2f");
-                ImGui::SliderFloat("Spin (a/M)", &settings.spin, 0.0f, 0.99f, "%.2f");
                 ImGui::SliderInt("Quality (Max Steps)", &settings.max_steps, 30, 300);
                 ImGui::SliderFloat("Disk Thickness", &settings.disk_thickness, 0.01f, 0.50f, "%.2f");
                 ImGui::SliderFloat("Disk Density", &settings.disk_density, 0.10f, 5.00f, "%.2f");
@@ -898,37 +800,6 @@ int main(int argc, char** argv) {
                 ImGui::SliderFloat("Disk Speed", &settings.disk_speed, 0.00f, 2.00f, "%.2f");
                 ImGui::SliderFloat("Glow Intensity", &settings.bloom_intensity, 0.00f, 2.00f, "%.2f");
 
-                const char* spectrumItems[] = { "Planckian (Thermal)", "Nebula Glow (Violet)", "Plasma Fire (Orange)", "Quantum Shift (Cyan)" };
-                ImGui::Combo("Color Spectrum", &settings.spectrum_mode, spectrumItems, IM_ARRAYSIZE(spectrumItems));
-            }
-
-            if (ImGui::CollapsingHeader("Gravitational Wave Perturbations (h_ij)")) {
-                bool gw = (settings.gw_enabled != 0);
-                if (ImGui::Checkbox("Gravitational Waves", &gw)) settings.gw_enabled = gw ? 1 : 0;
-                ImGui::SliderFloat("Wave Strain (Amplitude)", &settings.gw_amplitude, 0.00f, 0.20f, "%.3f");
-                ImGui::SliderFloat("Wave Frequency (Hz)", &settings.gw_frequency, 0.10f, 5.00f, "%.2f");
-            }
-
-            if (ImGui::CollapsingHeader("Adaptive Temporal Sampling (TAA)")) {
-                bool taa = (settings.taa_enabled != 0);
-                if (ImGui::Checkbox("Temporal Anti-Aliasing", &taa)) settings.taa_enabled = taa ? 1 : 0;
-                ImGui::SliderFloat("Blend Alpha", &settings.taa_blend, 0.05f, 0.50f, "%.2f");
-            }
-
-            if (ImGui::CollapsingHeader("CSG Geometry & Mechanics")) {
-                const char* csgItems[] = { "Disabled", "Union", "Smooth Min", "Subtraction", "Intersection" };
-                ImGui::Combo("CSG Operation", &settings.csg_mode, csgItems, IM_ARRAYSIZE(csgItems));
-                ImGui::SliderFloat("Smooth Blend (k)", &settings.csg_blend, 0.05f, 1.50f, "%.2f");
-            }
-
-            if (ImGui::CollapsingHeader("Lighting & Shadows")) {
-                bool shadows = (settings.soft_shadows != 0);
-                if (ImGui::Checkbox("Soft Shadows (Cone Tracing)", &shadows)) settings.soft_shadows = shadows ? 1 : 0;
-                ImGui::SliderFloat("Penumbra Softness", &settings.shadow_k, 4.0f, 32.0f, "%.1f");
-
-                bool ao = (settings.ao_enabled != 0);
-                if (ImGui::Checkbox("SDF Ambient Occlusion", &ao)) settings.ao_enabled = ao ? 1 : 0;
-                ImGui::SliderFloat("AO Intensity", &settings.ao_intensity, 0.20f, 2.50f, "%.2f");
             }
 
             if (ImGui::CollapsingHeader("Visual Elements")) {
@@ -937,9 +808,6 @@ int main(int argc, char** argv) {
 
                 bool dsk = (settings.disk != 0);
                 if (ImGui::Checkbox("Accretion Disk", &dsk)) settings.disk = dsk ? 1 : 0;
-
-                bool pol = (settings.polarization_mode != 0);
-                if (ImGui::Checkbox("Synchrotron Polarization Vector Overlay", &pol)) settings.polarization_mode = pol ? 1 : 0;
 
                 bool str = (settings.stars != 0);
                 if (ImGui::Checkbox("Starfield Background", &str)) { settings.stars = str ? 1 : 0; if (str) settings.grid = 0; }
@@ -976,7 +844,7 @@ int main(int argc, char** argv) {
         framesCounted++;
         if (currentFrameTime - lastFPSTime >= 1.0) {
             double fpsVal = (double)framesCounted / (currentFrameTime - lastFPSTime);
-            std::string title = "Relativistic Black Hole CUDA Live Viewer (" + std::to_string((int)fpsVal) + " FPS)";
+            std::string title = "Raymarcher (CUDA) - " + std::to_string((int)fpsVal) + " FPS";
             glfwSetWindowTitle(window, title.c_str());
             framesCounted = 0;
             lastFPSTime = currentFrameTime;
