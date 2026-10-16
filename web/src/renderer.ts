@@ -3,6 +3,16 @@ import { UNIFORM_BUFFER_SIZE } from './uniforms.ts';
 
 export class ShaderCompileError extends Error {}
 
+/** IEEE 754 half-precision bits to a number. */
+function halfToFloat(h: number): number {
+  const sign = h & 0x8000 ? -1 : 1;
+  const exp = (h >> 10) & 0x1f;
+  const frac = h & 0x3ff;
+  if (exp === 0) return sign * frac * 2 ** -24;
+  if (exp === 31) return frac ? NaN : sign * Infinity;
+  return sign * (1 + frac / 1024) * 2 ** (exp - 15);
+}
+
 /** WebGPU host: a compute pass that traces rays, then a composite pass to the canvas. */
 export class Renderer {
   private device!: GPUDevice;
@@ -24,7 +34,9 @@ export class Renderer {
     if (!navigator.gpu) return false;
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) return false;
-    this.device = await adapter.requestDevice();
+    // Timestamp queries, where available, let timeTrace measure GPU time.
+    const timestamps = adapter.features.has('timestamp-query');
+    this.device = await adapter.requestDevice({ requiredFeatures: timestamps ? ['timestamp-query'] : [] });
     const context = this.canvas.getContext('webgpu');
     if (!context) return false;
     this.context = context;
@@ -86,6 +98,108 @@ export class Renderer {
   private dropTarget() {
     this.target?.destroy();
     this.target = null;
+  }
+
+  /**
+   * Traces one frame offscreen at an exact size and reads the HDR texture back:
+   * linear RGB plus the ray fate in alpha (0 escaped, 1 captured, 2 disk,
+   * 3 unfinished). For cross-backend validation; the canvas is untouched.
+   */
+  async capture(uniforms: ArrayBuffer, width: number, height: number): Promise<{ rgba: Float32Array; gpuMs: number }> {
+    if (!this.computePipeline) throw new Error('No metric loaded');
+    const texture = this.device.createTexture({
+      label: 'Capture target',
+      size: [width, height],
+      format: 'rgba16float',
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
+    });
+    const bytesPerRow = Math.ceil((width * 8) / 256) * 256;
+    const readback = this.device.createBuffer({ size: bytesPerRow * height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const bindGroup = this.device.createBindGroup({
+      layout: this.computePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: texture.createView() },
+      ],
+    });
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+    const encoder = this.device.createCommandEncoder();
+    const pass = encoder.beginComputePass({ label: 'Trace rays (capture)' });
+    pass.setPipeline(this.computePipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+    pass.end();
+    encoder.copyTextureToBuffer({ texture }, { buffer: readback, bytesPerRow }, [width, height]);
+    const t0 = performance.now();
+    this.device.queue.submit([encoder.finish()]);
+    await this.device.queue.onSubmittedWorkDone();
+    const gpuMs = performance.now() - t0; // wall time including the copy; not a benchmark
+    await readback.mapAsync(GPUMapMode.READ);
+    const halves = new Uint16Array(readback.getMappedRange());
+    const rgba = new Float32Array(width * height * 4);
+    const rowHalves = bytesPerRow / 2;
+    for (let y = 0; y < height; y++) {
+      for (let i = 0; i < width * 4; i++) rgba[y * width * 4 + i] = halfToFloat(halves[y * rowHalves + i]);
+    }
+    readback.unmap();
+    readback.destroy();
+    texture.destroy();
+    return { rgba, gpuMs };
+  }
+
+  /**
+   * GPU time of the trace pass alone, per frame, for benchmarks: timestamp
+   * queries around each compute pass when the device has them (Chrome rounds
+   * them to 0.1 ms), otherwise wall time around submit + onSubmittedWorkDone.
+   */
+  async timeTrace(uniforms: ArrayBuffer, width: number, height: number, frames: number): Promise<{ ms: number[]; method: string }> {
+    if (!this.computePipeline) throw new Error('No metric loaded');
+    const texture = this.device.createTexture({ size: [width, height], format: 'rgba16float', usage: GPUTextureUsage.STORAGE_BINDING });
+    const bindGroup = this.device.createBindGroup({
+      layout: this.computePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: texture.createView() },
+      ],
+    });
+    const hasTimestamps = this.device.features.has('timestamp-query');
+    const ms: number[] = [];
+    for (let i = 0; i <= frames; i++) {
+      const querySet = hasTimestamps ? this.device.createQuerySet({ type: 'timestamp', count: 2 }) : null;
+      const resolve = querySet ? this.device.createBuffer({ size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : null;
+      const read = querySet ? this.device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : null;
+      const encoder = this.device.createCommandEncoder();
+      const pass = encoder.beginComputePass(
+        querySet ? { timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : {},
+      );
+      pass.setPipeline(this.computePipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
+      pass.end();
+      if (querySet) {
+        encoder.resolveQuerySet(querySet, 0, 2, resolve!, 0);
+        encoder.copyBufferToBuffer(resolve!, 0, read!, 0, 16);
+      }
+      // Written right before each submit: a frame of the viewer's own loop could
+      // otherwise land in between and leave its (smaller) image size in the buffer.
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+      const t0 = performance.now();
+      this.device.queue.submit([encoder.finish()]);
+      await this.device.queue.onSubmittedWorkDone();
+      const wall = performance.now() - t0;
+      let frameMs = wall;
+      if (querySet) {
+        await read!.mapAsync(GPUMapMode.READ);
+        const t = new BigInt64Array(read!.getMappedRange());
+        frameMs = Number(t[1] - t[0]) / 1e6;
+        read!.unmap();
+        for (const b of [resolve!, read!]) b.destroy();
+        querySet.destroy();
+      }
+      if (i > 0) ms.push(frameMs); // the first frame is a warm-up
+    }
+    texture.destroy();
+    return { ms, method: hasTimestamps ? 'timestamp-query' : 'wall time (submit to onSubmittedWorkDone)' };
   }
 
   render(uniforms: ArrayBuffer): void {

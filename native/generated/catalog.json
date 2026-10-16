@@ -1,0 +1,62 @@
+{
+  "metrics": [
+    {
+      "id": "kerr",
+      "name": "Kerr",
+      "description": "A rotating black hole in outgoing Kerr-Schild coordinates. Spin drags spacetime around with it.",
+      "header": "kerr.cuh",
+      "hasHorizon": true,
+      "hasDisk": true,
+      "params": [
+        {
+          "name": "M",
+          "label": "Mass",
+          "value": 1,
+          "min": 0.2,
+          "max": 3
+        },
+        {
+          "name": "a",
+          "label": "Spin a/M",
+          "value": 0.6,
+          "min": 0,
+          "max": 0.99
+        }
+      ]
+    },
+    {
+      "id": "minkowski",
+      "name": "Flat space",
+      "description": "No gravity: light travels in straight lines. The disk orbits as if a mass M were present, for comparison.",
+      "header": "minkowski.cuh",
+      "hasHorizon": false,
+      "hasDisk": true,
+      "params": [
+        {
+          "name": "M",
+          "label": "Disk mass scale",
+          "value": 1,
+          "min": 0.2,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "id": "schwarzschild",
+      "name": "Schwarzschild",
+      "description": "A non-rotating black hole, in outgoing Kerr-Schild coordinates.",
+      "header": "schwarzschild.cuh",
+      "hasHorizon": true,
+      "hasDisk": true,
+      "params": [
+        {
+          "name": "M",
+          "label": "Mass",
+          "value": 1,
+          "min": 0.2,
+          "max": 3
+        }
+      ]
+    }
+  ]
+}

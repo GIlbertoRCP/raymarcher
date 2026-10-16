@@ -44,7 +44,16 @@ const FLAG_DISK: u32 = 1u;
 const FLAG_GRID: u32 = 2u;
 const FLAG_REDSHIFT: u32 = 4u;
 const FLAG_STARS: u32 = 8u;
+const FLAG_DEBUG_FATE: u32 = 16u;
 const PI: f32 = 3.14159265359;
+
+// Ray fates, as in compiler/src/geodesic.ts and native/src/rm/geodesic.h. The
+// trace writes the fate into the alpha channel of the HDR texture (the
+// composite ignores alpha), so captures can compare fate maps across backends.
+const FATE_ESCAPED: f32 = 0.0;
+const FATE_CAPTURED: f32 = 1.0;
+const FATE_DISK: f32 = 2.0;
+const FATE_UNFINISHED: f32 = 3.0;
 
 fn has_flag(f: u32) -> bool { return (U.flags & f) != 0u; }
 
@@ -195,7 +204,8 @@ fn disk_color(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
 
 // --- Tracer --------------------------------------------------------------
 
-fn trace(uv: vec2<f32>) -> vec3<f32> {
+// Colour in rgb, fate in w.
+fn trace(uv: vec2<f32>) -> vec4<f32> {
   let aspect = U.resolution.x / max(U.resolution.y, 1.0);
   let ndc = uv * 2.0 - 1.0;
   let d = normalize(vec3<f32>(ndc.x * aspect * U.fov_scale, ndc.y * U.fov_scale, 1.0));
@@ -204,18 +214,19 @@ fn trace(uv: vec2<f32>) -> vec3<f32> {
   var p = -U.f0 + d.x * U.f1 + d.y * U.f2 + d.z * U.f3;
   let check_disk = HAS_DISK && has_flag(FLAG_DISK);
   let min_step = 0.002 * U.length_scale;
+  var fate = FATE_UNFINISHED;
 
   for (var i = 0u; i < U.max_steps; i++) {
-    if (HAS_HORIZON && horizon_value(x) < 0.0) { return vec3<f32>(0.0); }
+    if (HAS_HORIZON && horizon_value(x) < 0.0) { return vec4<f32>(0.0, 0.0, 0.0, FATE_CAPTURED); }
     let r = length(x.yzw);
-    if (r > U.escape_radius) { break; }
+    if (r > U.escape_radius) { fate = FATE_ESCAPED; break; }
 
     let h = max(U.step_fraction * r, min_step);
     let k1 = geodesic_rhs(x, p);
     // Traced backwards, a ray heading into a horizon piles up against it while
     // dt/dlambda diverges (in ingoing coordinates it never crosses). Treat a
     // diverging or non-finite time component as captured.
-    if (!(abs(k1.dx.x) < 1.0e4)) { return vec3<f32>(0.0); }
+    if (!(abs(k1.dx.x) < 1.0e4)) { return vec4<f32>(0.0, 0.0, 0.0, FATE_CAPTURED); }
     let k2 = geodesic_rhs(x + 0.5 * h * k1.dx, p + 0.5 * h * k1.dp);
     let k3 = geodesic_rhs(x + 0.5 * h * k2.dx, p + 0.5 * h * k2.dp);
     let k4 = geodesic_rhs(x + h * k3.dx, p + h * k3.dp);
@@ -225,7 +236,7 @@ fn trace(uv: vec2<f32>) -> vec3<f32> {
     if (check_disk && x.w * x_new.w <= 0.0 && x.w != x_new.w) {
       let f = x.w / (x.w - x_new.w);
       let c = disk_color(mix(x, x_new, f), mix(p, p_new, f));
-      if (c.a > 0.0) { return c.rgb; }
+      if (c.a > 0.0) { return vec4<f32>(c.rgb, FATE_DISK); }
     }
     x = x_new;
     p = p_new;
@@ -233,7 +244,15 @@ fn trace(uv: vec2<f32>) -> vec3<f32> {
   // Escaped (or out of steps): the light arrived from the part of the sky
   // this backwards-traced ray is heading toward.
   let dir = geodesic_rhs(x, p).dx.yzw;
-  return background(normalize(dir));
+  return vec4<f32>(background(normalize(dir)), fate);
+}
+
+// Flat colours per fate, for checking fate maps by eye (debugFate).
+fn fate_color(fate: f32) -> vec3<f32> {
+  if (fate == FATE_CAPTURED) { return vec3<f32>(0.0); }
+  if (fate == FATE_DISK) { return vec3<f32>(1.2, 0.55, 0.2); }
+  if (fate == FATE_UNFINISHED) { return vec3<f32>(1.5, 0.0, 1.5); }
+  return vec3<f32>(0.15, 0.3, 0.6);
 }
 
 @compute @workgroup_size(8, 8)
@@ -241,8 +260,9 @@ fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
   let size = vec2<u32>(U.resolution);
   if (id.x >= size.x || id.y >= size.y) { return; }
   let uv = (vec2<f32>(id.xy) + 0.5) / U.resolution;
-  let color = trace(vec2<f32>(uv.x, 1.0 - uv.y));
-  textureStore(out_texture, vec2<i32>(id.xy), vec4<f32>(color, 1.0));
+  var result = trace(vec2<f32>(uv.x, 1.0 - uv.y));
+  if (has_flag(FLAG_DEBUG_FATE)) { result = vec4<f32>(fate_color(result.w), result.w); }
+  textureStore(out_texture, vec2<i32>(id.xy), result);
 }
 `;
 

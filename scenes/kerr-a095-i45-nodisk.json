@@ -1,0 +1,29 @@
+{
+  "name": "kerr-a095-i45-nodisk",
+  "spacetime": "kerr",
+  "params": {
+    "M": 1,
+    "a": 0.95
+  },
+  "camera": {
+    "radius": 26,
+    "yaw": 0,
+    "pitch": 0.785398,
+    "fovDegrees": 45
+  },
+  "resolution": [
+    960,
+    540
+  ],
+  "sky": "stars",
+  "disk": false,
+  "redshift": false,
+  "exposure": 0.55,
+  "diskTemp": 4500,
+  "time": 0,
+  "integrator": {
+    "method": "rk4",
+    "maxSteps": 300,
+    "stepFraction": 0.03
+  }
+}

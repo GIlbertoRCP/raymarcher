@@ -1,0 +1,1221 @@
+{
+  "check": "Fate agreement between render sets 'cuda' (cuda-nvrtc, fp32) and 'webgpu' (webgpu, fp32), same scene files",
+  "gate": "fate agreement >= 99.5% on every scene, excluding pixels within 1 px of a fate boundary (3x3 neighbourhood, either map)",
+  "pass": true,
+  "worst_interior_agreement": 1,
+  "scenes_compared": 21,
+  "scenes_missing": 0,
+  "sets": {
+    "a": "cuda",
+    "b": "webgpu"
+  },
+  "date": "2026-10-15T23:20:47.321Z",
+  "git": {
+    "commit": "9788634",
+    "uncommitted_changes": true
+  },
+  "a": {
+    "backend": "cuda-nvrtc",
+    "precision": "fp32",
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "driver": "617.42",
+    "cuda_driver_api": "13.4",
+    "nvrtc": "13.3"
+  },
+  "b": {
+    "backend": "webgpu",
+    "precision": "fp32",
+    "browser": "chrome headless",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "ampere",
+      "description": ""
+    }
+  },
+  "image_difference_note": "HDR images compared after Reinhard x/(1+x) and gamma 2.2 to 8 bits (not the app display path, which adds bloom and grading). WebGPU stores the HDR image as rgba16float, so its values carry half-precision rounding.",
+  "scenes": [
+    {
+      "scene": "kerr-a060-i17-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515393,
+      "boundary_pixels": 3007,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            1554,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            45079,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            471616,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            151
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1358
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.01081468621399177,
+        "pctOver8": 0.0005787037037037037,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 14.5111,
+      "cuda_constraint_drift_p99": 6.063e-7
+    },
+    {
+      "scene": "kerr-a060-i17-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515807,
+      "boundary_pixels": 2593,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            468870,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            48941,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            589
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1408
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.048988554526748974,
+        "pctOver8": 0.09104938271604938,
+        "pctOver32": 0.04282407407407408
+      },
+      "cuda_trace_ms": 30.1085,
+      "cuda_constraint_drift_p99": 0.000001231
+    },
+    {
+      "scene": "kerr-a060-i45-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 513394,
+      "boundary_pixels": 5006,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            27051,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            38210,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            452933,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            206
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1270
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.011216563786008231,
+        "pctOver8": 0.0023148148148148147,
+        "pctOver32": 0.00038580246913580245
+      },
+      "cuda_trace_ms": 13.5526,
+      "cuda_constraint_drift_p99": 6.718e-7
+    },
+    {
+      "scene": "kerr-a060-i45-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515786,
+      "boundary_pixels": 2614,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            468326,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            49474,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            600
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1416
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.037125128600823044,
+        "pctOver8": 0.06905864197530864,
+        "pctOver32": 0.03009259259259259
+      },
+      "cuda_trace_ms": 28.0086,
+      "cuda_constraint_drift_p99": 0.000001143
+    },
+    {
+      "scene": "kerr-a060-i85-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 510300,
+      "boundary_pixels": 8100,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            249313,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            26540,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            242333,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            214
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1184
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.016900077160493826,
+        "pctOver8": 0.022376543209876542,
+        "pctOver32": 0.005787037037037037
+      },
+      "cuda_trace_ms": 19.3831,
+      "cuda_constraint_drift_p99": 0.000001057
+    },
+    {
+      "scene": "kerr-a060-i85-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515785,
+      "boundary_pixels": 2615,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            467675,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            50138,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            587
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1424
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.029551183127572017,
+        "pctOver8": 0.06076388888888889,
+        "pctOver32": 0.018132716049382717
+      },
+      "cuda_trace_ms": 34.0931,
+      "cuda_constraint_drift_p99": 0.000001266
+    },
+    {
+      "scene": "kerr-a095-i17-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 516952,
+      "boundary_pixels": 1448,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            969,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            17606,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            499825,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 844
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.00518261316872428,
+        "pctOver8": 0,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 14.0182,
+      "cuda_constraint_drift_p99": 6.792e-7
+    },
+    {
+      "scene": "kerr-a095-i17-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515462,
+      "boundary_pixels": 2938,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            472455,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            44913,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1032
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1350
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.0511059670781893,
+        "pctOver8": 0.09606481481481481,
+        "pctOver32": 0.04436728395061729
+      },
+      "cuda_trace_ms": 34.6264,
+      "cuda_constraint_drift_p99": 0.0000013
+    },
+    {
+      "scene": "kerr-a095-i45-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515878,
+      "boundary_pixels": 2522,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            24651,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            17471,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            476278,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 846
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.005908564814814814,
+        "pctOver8": 0.0015432098765432098,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 15.7869,
+      "cuda_constraint_drift_p99": 8.205e-7
+    },
+    {
+      "scene": "kerr-a095-i45-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515532,
+      "boundary_pixels": 2868,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            471163,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            46091,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1146
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1370
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.03486304012345679,
+        "pctOver8": 0.0630787037037037,
+        "pctOver32": 0.02816358024691358
+      },
+      "cuda_trace_ms": 34.5386,
+      "cuda_constraint_drift_p99": 0.000001294
+    },
+    {
+      "scene": "kerr-a095-i85-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 512067,
+      "boundary_pixels": 6333,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            245844,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            17784,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            254706,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            66
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 956
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.03029320987654321,
+        "pctOver8": 0.0628858024691358,
+        "pctOver32": 0.027199074074074073
+      },
+      "cuda_trace_ms": 23.3123,
+      "cuda_constraint_drift_p99": 0.000001326
+    },
+    {
+      "scene": "kerr-a095-i85-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515593,
+      "boundary_pixels": 2807,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            469489,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            47758,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1153
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1400
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.05760866769547325,
+        "pctOver8": 0.12692901234567902,
+        "pctOver32": 0.054205246913580245
+      },
+      "cuda_trace_ms": 35.3802,
+      "cuda_constraint_drift_p99": 0.000001439
+    },
+    {
+      "scene": "minkowski-i17-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 514304,
+      "boundary_pixels": 4096,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            90974,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            425850,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1576
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": null,
+      "image_difference": {
+        "meanAbsLevels": 0.016008230452674896,
+        "pctOver8": 0.005787037037037037,
+        "pctOver32": 0.0015432098765432098
+      },
+      "cuda_trace_ms": 0.5548,
+      "cuda_constraint_drift_p99": 1.122e-7
+    },
+    {
+      "scene": "minkowski-i45-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 513228,
+      "boundary_pixels": 5172,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            148280,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            368544,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1576
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": null,
+      "image_difference": {
+        "meanAbsLevels": 0.01911201131687243,
+        "pctOver8": 0.01427469135802469,
+        "pctOver32": 0.0055941358024691355
+      },
+      "cuda_trace_ms": 0.5663,
+      "cuda_constraint_drift_p99": 1.104e-7
+    },
+    {
+      "scene": "minkowski-i85-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 512892,
+      "boundary_pixels": 5508,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            334338,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            182910,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1152
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": null,
+      "image_difference": {
+        "meanAbsLevels": 0.03268582818930041,
+        "pctOver8": 0.06018518518518518,
+        "pctOver32": 0.020061728395061727
+      },
+      "cuda_trace_ms": 0.6204,
+      "cuda_constraint_drift_p99": 1.095e-7
+    },
+    {
+      "scene": "schwarzschild-i17-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 508358,
+      "boundary_pixels": 10042,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            44152,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            51120,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            422856,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            272
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1440
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.01599022633744856,
+        "pctOver8": 0.007716049382716049,
+        "pctOver32": 0.0028935185185185184
+      },
+      "cuda_trace_ms": 9.342,
+      "cuda_constraint_drift_p99": 0.000001057
+    },
+    {
+      "scene": "schwarzschild-i17-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515892,
+      "boundary_pixels": 2508,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            466820,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            51120,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            460
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1440
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.04341177983539095,
+        "pctOver8": 0.08314043209876543,
+        "pctOver32": 0.039544753086419755
+      },
+      "cuda_trace_ms": 16.4526,
+      "cuda_constraint_drift_p99": 0.000001144
+    },
+    {
+      "scene": "schwarzschild-i45-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 508882,
+      "boundary_pixels": 9518,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            55238,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            51120,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            411720,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            322
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1440
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.015270704732510288,
+        "pctOver8": 0.007716049382716049,
+        "pctOver32": 0.002507716049382716
+      },
+      "cuda_trace_ms": 8.6129,
+      "cuda_constraint_drift_p99": 9.584e-7
+    },
+    {
+      "scene": "schwarzschild-i45-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515892,
+      "boundary_pixels": 2508,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            466820,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            51120,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            460
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1440
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.03528742283950617,
+        "pctOver8": 0.06481481481481481,
+        "pctOver32": 0.03009259259259259
+      },
+      "cuda_trace_ms": 15.4615,
+      "cuda_constraint_drift_p99": 0.000001048
+    },
+    {
+      "scene": "schwarzschild-i85-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 508890,
+      "boundary_pixels": 9510,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            261294,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            29318,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            227562,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            226
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1268
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.03354102366255144,
+        "pctOver8": 0.0628858024691358,
+        "pctOver32": 0.020061728395061727
+      },
+      "cuda_trace_ms": 11.1319,
+      "cuda_constraint_drift_p99": 0.000001052
+    },
+    {
+      "scene": "schwarzschild-i85-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515892,
+      "boundary_pixels": 2508,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            466820,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            51120,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            460
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1440
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.05688786008230453,
+        "pctOver8": 0.13252314814814814,
+        "pctOver32": 0.046296296296296294
+      },
+      "cuda_trace_ms": 15.8184,
+      "cuda_constraint_drift_p99": 0.000001183
+    }
+  ]
+}
