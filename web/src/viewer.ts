@@ -1,6 +1,6 @@
 import type { CatalogName } from '../../metrics/index.ts';
 import { Renderer } from './renderer.ts';
-import { cameraState, loadSpacetime, paramsFor, type CameraState, type LoadedSpacetime } from './scene.ts';
+import { cameraState, loadSource, loadSpacetime, paramsFor, type CameraState, type LoadedSpacetime } from './scene.ts';
 import { sceneToSettings, settingsToScene, type SceneFile } from './scene-file.ts';
 import type { Settings } from './settings.ts';
 import { packUniforms } from './uniforms.ts';
@@ -41,7 +41,9 @@ export class Viewer {
 
   async init(): Promise<boolean> {
     if (!(await this.renderer.init())) return false;
-    await this.setSpacetime(this.settings.spacetime);
+    const { spacetime, customSource } = this.settings;
+    if (spacetime === 'custom' && customSource) await this.useSource(customSource);
+    else await this.setSpacetime(spacetime === 'custom' ? 'kerr' : spacetime);
     return true;
   }
 
@@ -55,6 +57,36 @@ export class Viewer {
     await this.renderer.setMetric(loaded.wgsl, loaded.metric.name);
     this.touch();
     this.settings.spacetime = name;
+    this.loaded = loaded;
+  }
+
+  /**
+   * Switches to a metric typed by the user. Everything that can fail does so
+   * before the switch, so a bad metric leaves the current view untouched:
+   * parse errors (MetricSyntaxError), the GPU backend's limits, shader
+   * compilation (ShaderCompileError), and a camera that cannot hover there.
+   */
+  async useSource(source: string): Promise<void> {
+    const loaded = loadSource(source);
+    const previous = this.settings.params.custom;
+    const params = previous && previous.length === loaded.metric.params.length ? previous : loaded.metric.params.map(p => p.value);
+    let cam: CameraState;
+    try {
+      cam = cameraState(loaded, params, this.settings);
+    } catch {
+      throw new Error(
+        `The camera cannot hover at distance ${this.settings.camRadius} here: g_tt is not negative there, so no observer can stand still ` +
+          '(the camera would be inside a horizon or an ergoregion, or the time direction has the wrong sign). Try a larger distance or check g t t.',
+      );
+    }
+    if (!cam.frame.flat().every(Number.isFinite) || !Number.isFinite(cam.lengthScale)) {
+      throw new Error('The metric is not finite at the camera position; check for division by zero or square roots of negative numbers.');
+    }
+    await this.renderer.setMetric(loaded.wgsl, loaded.metric.name);
+    this.touch();
+    this.settings.spacetime = 'custom';
+    this.settings.customSource = source;
+    this.settings.params.custom = params;
     this.loaded = loaded;
   }
 

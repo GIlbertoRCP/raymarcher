@@ -29,6 +29,31 @@
         <p class="chart-desc" id="chart-desc"></p>
       </figcaption>
       <div class="sweep" id="sweep" hidden></div>
+      <section class="worksheet" id="worksheet" hidden aria-labelledby="ws-title">
+        <header class="ws-head">
+          <h2 id="ws-title">Metric worksheet</h2>
+          <button type="button" class="ws-button" id="ws-close">Close</button>
+        </header>
+        <label class="ws-start">
+          <span>Start from</span>
+          <select id="ws-template"></select>
+        </label>
+        <div class="ws-editor">
+          <pre class="ws-gutter" id="ws-gutter" aria-hidden="true"></pre>
+          <textarea id="ws-source" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Metric source" aria-describedby="ws-status"></textarea>
+        </div>
+        <p class="ws-status" id="ws-status" role="status" aria-live="polite"></p>
+        <div class="ws-actions">
+          <button type="button" class="ws-button" id="ws-link">Copy link to this metric</button>
+        </div>
+        <details class="ws-help">
+          <summary>How metric files work</summary>
+          <p>One statement per line. <code>coords t x y z</code> names the coordinates; the tracer treats x, y, z as Cartesian-like, flat far away, with the camera orbiting the origin.</p>
+          <p><code>param M = 1 in [0.2, 3] "Mass"</code> adds a slider (up to 8). <code>let</code> names an expression. <code>g t t = …</code> sets one component; the metric is symmetric and anything unset is zero.</p>
+          <p><code>horizon r &lt; 2*M</code> marks where rays are captured. <code>disk radius / omega / inner / outer</code> adds a thin disk in the z = 0 plane. <code>scale = M</code> sets the distance unit.</p>
+          <p>Expressions use + − * / ^, parentheses, pi, and sqrt, sin, cos, exp, log. Exponents must be constants.</p>
+        </details>
+      </section>
       <div class="notice" id="notice" hidden>
         <h2>This chart needs WebGPU</h2>
         <p>Open it in a recent Chrome or Edge, or Safari 26 or later, with hardware acceleration turned on.</p>

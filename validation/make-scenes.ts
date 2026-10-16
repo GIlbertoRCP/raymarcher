@@ -1,6 +1,6 @@
 // Writes the cross-backend scene set (docs/phase-2-plan.md, step 4) to scenes/:
 //   Schwarzschild and Kerr (a = 0.6, 0.95) at inclinations 17, 45 and 85 degrees,
-//   disk on and off; flat space at the same inclinations.
+//   disk on and off; Reissner–Nordström (q = 0.8) likewise; flat space at the same inclinations.
 // Everything else is the web app's default view.
 //   npx vite-node validation/make-scenes.ts
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -18,6 +18,7 @@ const spacetimes: { id: string; spacetime: SceneFile['spacetime']; params: Recor
   { id: 'schwarzschild', spacetime: 'schwarzschild', params: { M: 1 }, disks: [true, false] },
   { id: 'kerr-a060', spacetime: 'kerr', params: { M: 1, a: 0.6 }, disks: [true, false] },
   { id: 'kerr-a095', spacetime: 'kerr', params: { M: 1, a: 0.95 }, disks: [true, false] },
+  { id: 'rn-q080', spacetime: 'reissner-nordstrom', params: { M: 1, q: 0.8 }, disks: [true, false] },
   { id: 'minkowski', spacetime: 'minkowski', params: { M: 1 }, disks: [true] },
 ];
 

@@ -1,11 +1,11 @@
 // Runs the CPU shadow trace off the main thread so rendering stays smooth.
-import type { CatalogName } from '../../metrics/index.ts';
-import { loadSpacetime, type CameraState } from './scene.ts';
+import { loadSource, type CameraState } from './scene.ts';
 import { traceDiskInnerEdge, traceShadowEdge } from './shadow.ts';
 
 export interface TraceRequest {
   id: number;
-  spacetime: CatalogName;
+  /** Metric source, so custom metrics trace the same way as the catalog. */
+  source: string;
   params: number[];
   camera: CameraState;
   maxTan: number;
@@ -18,8 +18,8 @@ self.onmessage = async (e: MessageEvent<TraceRequest>) => {
   current?.abort();
   const controller = new AbortController();
   current = controller;
-  const { id, spacetime, params, camera, maxTan, disk } = e.data;
-  const loaded = loadSpacetime(spacetime);
+  const { id, source, params, camera, maxTan, disk } = e.data;
+  const loaded = loadSource(source);
   const edge = await traceShadowEdge(loaded, params, camera, {
     maxTan,
     signal: controller.signal,

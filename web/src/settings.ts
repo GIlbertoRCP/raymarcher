@@ -2,10 +2,15 @@ import { catalog, type CatalogName } from '../../metrics/index.ts';
 
 export type Background = 'stars' | 'grid' | 'none';
 
+/** A catalog spacetime, or 'custom' for a metric typed into the worksheet. */
+export type SpacetimeId = CatalogName | 'custom';
+
 export interface Settings {
-  spacetime: CatalogName;
+  spacetime: SpacetimeId;
   /** Parameter values for each spacetime, in the order the metric file declares them. */
-  params: Partial<Record<CatalogName, number[]>>;
+  params: Partial<Record<SpacetimeId, number[]>>;
+  /** Source of the custom metric, when spacetime is 'custom'. */
+  customSource?: string;
 
   renderScale: number; // 0.25 to 1.0 internal resolution
   maxSteps: number;

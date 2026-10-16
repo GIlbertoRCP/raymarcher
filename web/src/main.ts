@@ -1,5 +1,7 @@
-import type { CatalogName } from '../../metrics/index.ts';
+import { MetricSyntaxError } from '../../compiler/src/index.ts';
+import { catalog, type CatalogName } from '../../metrics/index.ts';
 import { orbitCamera, type Vec3 } from './camera.ts';
+import { ShaderCompileError } from './renderer.ts';
 import { loadSpacetime } from './scene.ts';
 import { parseScene, sceneToSettings, type SceneFile } from './scene-file.ts';
 import { defaultSettings, SPACETIMES, type Background } from './settings.ts';
@@ -68,9 +70,22 @@ function buildCharts() {
     input.addEventListener('change', () => selectChart(name));
     list.append(li);
   });
+
+  // The worksheet: a metric the visitor writes.
+  const li = document.createElement('li');
+  li.innerHTML = `<label><input type="radio" name="chart" value="custom"><span class="num">${SPACETIMES.length + 1}</span><span class="mark"></span><span class="name">Your own metric</span></label>`;
+  const input = li.querySelector('input')!;
+  input.checked = s.spacetime === 'custom';
+  input.addEventListener('change', () => openWorksheet());
+  // Clicking the active entry again reopens a closed worksheet.
+  li.querySelector('label')!.addEventListener('click', () => {
+    if (input.checked && worksheet.hidden) openWorksheet();
+  });
+  list.append(li);
 }
 
 async function selectChart(name: CatalogName) {
+  closeWorksheet();
   await viewer.setSpacetime(name);
   buildParams();
   updateTitle();
@@ -102,7 +117,7 @@ function buildParams() {
 
 function updateTitle() {
   const { metric, name } = viewer.spacetime;
-  $('plate-no').textContent = `Plate ${SPACETIMES.indexOf(name) + 1}`;
+  $('plate-no').textContent = name === 'custom' ? 'Worksheet' : `Plate ${SPACETIMES.indexOf(name) + 1}`;
   $('chart-name').textContent = metric.name;
   $('chart-desc').textContent = metric.description;
   const params = viewer.params();
@@ -312,15 +327,24 @@ worker.onmessage = (e: MessageEvent<{ id: number; type: 'progress' | 'done'; don
 };
 
 function currentTraceKey(): string {
-  return [s.spacetime, s.disk, viewer.params().join(','), s.camYaw.toFixed(4), s.camPitch.toFixed(4), s.camRadius.toFixed(3), s.fovDegrees, field.clientWidth, field.clientHeight].join('|');
+  return [s.spacetime, s.spacetime === 'custom' ? s.customSource : '', s.disk, viewer.params().join(','), s.camYaw.toFixed(4), s.camPitch.toFixed(4), s.camRadius.toFixed(3), s.fovDegrees, field.clientWidth, field.clientHeight].join('|');
 }
 
 function predictedShadowDeg(): number | null {
-  // Schwarzschild: sin(alpha) = sqrt(27) M sqrt(1 - 2M/R) / R for a static observer at areal radius R.
-  if (s.spacetime !== 'schwarzschild') return null;
-  const R = s.camRadius; // Kerr-Schild r is the areal radius, in units of M
-  if (R <= 3) return null;
-  return Math.asin((Math.sqrt(27) * Math.sqrt(1 - 2 / R)) / R) * DEG;
+  // Static observer at areal radius R (the Kerr-Schild r) outside a charged,
+  // non-rotating hole with f(r) = 1 - 2M/r + Q^2/r^2:
+  //   sin(alpha) = b_c sqrt(f(R)) / R,  b_c = r_ph / sqrt(f(r_ph)),  r_ph = (3M + sqrt(9M^2 - 8Q^2)) / 2.
+  // Q = 0 gives Schwarzschild's sqrt(27) M. Units of M throughout.
+  let q: number;
+  if (s.spacetime === 'schwarzschild') q = 0;
+  else if (s.spacetime === 'reissner-nordstrom') q = viewer.params()[1];
+  else return null;
+  const f = (r: number) => 1 - 2 / r + (q * q) / (r * r);
+  const rPh = (3 + Math.sqrt(9 - 8 * q * q)) / 2;
+  const R = s.camRadius;
+  if (R <= rPh) return null;
+  const bCrit = rPh / Math.sqrt(f(rPh));
+  return Math.asin((bCrit * Math.sqrt(f(R))) / R) * DEG;
 }
 
 /**
@@ -355,8 +379,9 @@ function drawMarks(edge: ShadowEdge | null, diskEdge: DiskEdgeMark | null) {
   const notes: { point: number[]; title: string; subs: [string, string] }[] = [];
   const anchor = pts.reduce((best, p) => (p[0] - p[1] > best[0] - best[1] ? p : best));
   const predicted = predictedShadowDeg();
+  const formula = s.spacetime === 'schwarzschild' ? '√27 M' : 'the photon sphere';
   const shadowSub: [string, string] = predicted
-    ? [`CPU trace · √27 M predicts ${predicted.toFixed(2)}°`, `√27 M predicts ${predicted.toFixed(2)}°`]
+    ? [`CPU trace · ${formula} predicts ${predicted.toFixed(2)}°`, `predicted ${predicted.toFixed(2)}°`]
     : s.spacetime === 'kerr'
       ? ['CPU trace · outline validated against Bardeen (1973) in tests', 'Bardeen (1973) outline, in tests']
       : [`CPU trace · ${edge.points.length} rays`, 'CPU trace'];
@@ -386,7 +411,7 @@ function maybeTrace() {
   pendingKey = key;
   const request: TraceRequest = {
     id: tracingId,
-    spacetime: s.spacetime,
+    source: viewer.spacetime.source,
     params: viewer.params(),
     camera: viewer.camera(),
     maxTan: g.tanV * Math.hypot(g.width / g.height, 1),
@@ -409,6 +434,141 @@ function updateReadout() {
   sweep.hidden = !(viewer.previewing || tracingId);
 }
 
+// --- Metric worksheet --------------------------------------------------------
+// The visitor's own metric compiles as they type; the view switches only once
+// it parses, compiles for the GPU and admits a camera. #metric=<base64url>
+// in the address carries it, so a metric can be shared as a link.
+
+const worksheet = $('worksheet');
+const wsSource = $<HTMLTextAreaElement>('ws-source');
+const wsGutter = $('ws-gutter');
+const wsStatus = $('ws-status');
+const wsTemplate = $<HTMLSelectElement>('ws-template');
+let wsTimer = 0;
+let errorLine = 0;
+
+const STARTER = `${catalog.schwarzschild}`;
+
+function toBase64Url(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(text: string): string {
+  const bin = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
+  return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+}
+
+function metricFromHash(): string | null {
+  const match = /(?:^#|&)metric=([A-Za-z0-9_-]+)/.exec(location.hash);
+  if (!match) return null;
+  try {
+    return fromBase64Url(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function drawGutter() {
+  const lines = wsSource.value.split('\n').length;
+  wsGutter.replaceChildren(
+    ...Array.from({ length: lines }, (_, i) => {
+      const span = document.createElement('span');
+      span.textContent = String(i + 1);
+      if (i + 1 === errorLine) span.className = 'error';
+      return span;
+    }),
+  );
+  wsGutter.scrollTop = wsSource.scrollTop;
+}
+
+function setStatus(text: string, kind: 'ok' | 'error' | 'busy') {
+  wsStatus.textContent = text;
+  wsStatus.dataset.kind = kind;
+}
+
+async function applyWorksheet() {
+  const source = wsSource.value;
+  setStatus('Compiling…', 'busy');
+  try {
+    await viewer.useSource(source);
+    errorLine = 0;
+    const { metric } = viewer.spacetime;
+    const nodes = metric.graph.topologicalOrder([...metric.g, ...metric.dg.flat()]).length;
+    setStatus(`Compiled “${metric.name}”: ${metric.params.length} parameter${metric.params.length === 1 ? '' : 's'}, ${nodes} expression nodes for g and its derivatives.`, 'ok');
+    history.replaceState(null, '', `#metric=${toBase64Url(source)}`);
+    buildParams();
+    updateTitle();
+  } catch (e) {
+    if (e instanceof MetricSyntaxError) {
+      errorLine = e.line;
+      setStatus(`Line ${e.line}, column ${e.column}: ${e.message.replace(/^\d+:\d+: /, '')}`, 'error');
+    } else if (e instanceof ShaderCompileError) {
+      errorLine = 0;
+      setStatus(`The GPU rejected the generated shader: ${e.message}`, 'error');
+    } else {
+      errorLine = 0;
+      setStatus(e instanceof Error ? e.message : String(e), 'error');
+    }
+  }
+  drawGutter();
+}
+
+function openWorksheet(source?: string) {
+  if (source !== undefined) wsSource.value = source;
+  else if (!wsSource.value) wsSource.value = s.customSource ?? STARTER;
+  worksheet.hidden = false;
+  field.classList.add('editing');
+  drawGutter();
+  applyWorksheet();
+  const radio = document.querySelector<HTMLInputElement>('input[name="chart"][value="custom"]');
+  if (radio) radio.checked = true;
+}
+
+function closeWorksheet() {
+  worksheet.hidden = true;
+  field.classList.remove('editing');
+}
+
+wsTemplate.append(
+  ...SPACETIMES.map(name => new Option(loadSpacetime(name).metric.name, name)),
+);
+wsTemplate.value = 'schwarzschild';
+wsTemplate.addEventListener('change', () => {
+  wsSource.value = catalog[wsTemplate.value as CatalogName];
+  drawGutter();
+  applyWorksheet();
+});
+
+wsSource.addEventListener('input', () => {
+  drawGutter();
+  clearTimeout(wsTimer);
+  wsTimer = window.setTimeout(applyWorksheet, 450);
+});
+wsSource.addEventListener('scroll', () => (wsGutter.scrollTop = wsSource.scrollTop));
+wsSource.addEventListener('keydown', e => {
+  // Tab inserts two spaces instead of leaving the editor; Escape still leaves it.
+  if (e.key === 'Tab' && !e.shiftKey) {
+    e.preventDefault();
+    wsSource.setRangeText('  ', wsSource.selectionStart, wsSource.selectionEnd, 'end');
+    wsSource.dispatchEvent(new Event('input'));
+  }
+});
+$('ws-close').addEventListener('click', () => {
+  closeWorksheet();
+  canvas.focus();
+});
+$('ws-link').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(location.href);
+    setStatus('Link copied: it opens this worksheet with your metric.', 'ok');
+  } catch {
+    setStatus(`Copy this link: ${location.href}`, 'ok');
+  }
+});
+
 // --- Start -----------------------------------------------------------------
 
 async function start() {
@@ -419,6 +579,10 @@ async function start() {
   buildCharts();
   buildParams();
   updateTitle();
+  // A shared metric opens in the worksheet; if it no longer compiles, the
+  // worksheet says why and the default chart stays on screen.
+  const shared = metricFromHash();
+  if (shared) openWorksheet(shared);
   viewer.start();
   const tick = () => {
     updateScales();

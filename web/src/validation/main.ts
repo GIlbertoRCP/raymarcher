@@ -123,12 +123,12 @@ function buildTiles() {
 }
 
 function describeScene(id: string): string {
-  const m = /^(\w+?)(?:-a(\d+))?-i(\d+)(?:-(disk|nodisk))?$/.exec(id);
+  const m = /^(\w+?)(?:-([aq])(\d+))?-i(\d+)(?:-(disk|nodisk))?$/.exec(id);
   if (!m) return id;
-  const name = { kerr: 'Kerr', schwarzschild: 'Schwarzschild', minkowski: 'Flat space' }[m[1]] ?? m[1];
-  const spin = m[2] ? ` a ${Number(m[2]) / 100}` : '';
-  const disk = m[4] === 'nodisk' ? ', no disk' : '';
-  return `${name}${spin}, ${m[3]}°${disk}`;
+  const name = { kerr: 'Kerr', schwarzschild: 'Schwarzschild', minkowski: 'Flat space', rn: 'Reissner–Nordström' }[m[1]] ?? m[1];
+  const param = m[3] ? ` ${m[2]} ${Number(m[3]) / 100}` : '';
+  const disk = m[5] === 'nodisk' ? ', no disk' : '';
+  return `${name}${param}, ${m[4]}°${disk}`;
 }
 
 // --- Charts -----------------------------------------------------------------------
@@ -342,7 +342,7 @@ function buildSpeed() {
   const body = header($('precision-table') as HTMLTableElement, ['Spacetime', 'Single, RK4', 'Double, RK4', 'Double, RK45', 'Double ÷ single'], 'Trace time per 1080p frame, ms');
   for (const p of benchmarks.precision_and_integrator) {
     const row = body.insertRow();
-    const name = { kerr: 'Kerr', schwarzschild: 'Schwarzschild', minkowski: 'Flat space' }[p.metric] ?? p.metric;
+    const name = { kerr: 'Kerr', schwarzschild: 'Schwarzschild', minkowski: 'Flat space', 'reissner-nordstrom': 'Reissner–Nordström' }[p.metric] ?? p.metric;
     row.append(td(name, 'check'), td(p.fp32_rk4.trace_ms.toFixed(1), 'num'), td(p.fp64_rk4.trace_ms.toFixed(0), 'num'), td(p.fp64_rk45_rtol_1e10.trace_ms.toFixed(0), 'num'), td(`${p.fp64_over_fp32_time.toFixed(0)}×`, 'num'));
   }
 }

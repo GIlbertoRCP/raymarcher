@@ -44,7 +44,10 @@ The camera is a static observer whose orthonormal frame is built from the local 
 Built-in spacetimes (`metrics/`):
 - **Schwarzschild**: a non-rotating black hole.
 - **Kerr**: a spinning black hole, with spin a/M up to 0.99.
+- **Reissner–Nordström**: a charged, non-rotating black hole, with charge Q/M up to 0.95. Its innermost stable orbit is the real root of a cubic, written in the metric file with Cardano's formula.
 - **Flat space**: for comparison.
+
+You can also write your own: the playground's **worksheet** ("Your own metric" in the chart list) compiles a metric file as you type. Parse errors are shown with line and column, the view switches only once the metric compiles for the GPU and a camera can hover in it, and a link carries the metric in the URL.
 
 The black holes use outgoing Kerr-Schild coordinates. Rays traced backwards from a camera end on the past horizon, and these coordinates make that horizon regular.
 
@@ -74,6 +77,7 @@ The site's verification page (`web/validation.html`, linked from the playground'
 | Kerr shadow | Bardeen's (1973) analytic outline at a = 0.9, ±2% | `compiler/test/physics.test.ts` |
 | Kerr ISCO | 6M at a = 0, 2.32M at a = 0.9 (Bardeen, Press & Teukolsky 1972) | `compiler/test/physics.test.ts` |
 | Conservation | Energy and L_z conserved along rays in Kerr | `compiler/test/physics.test.ts` |
+| Reissner–Nordström | Capture at its own critical impact parameter; ISCO on the cubic's root (6M at Q = 0, 4M at Q = M); disk Ω equals circular geodesics derived from the metric | `compiler/test/physics.test.ts` |
 | Null constraint | H = ½ g^{μν} p_μ p_ν stays below 10⁻⁸ | `compiler/test/physics.test.ts` |
 | Parser errors | Reported with line and column | `compiler/test/parser.test.ts` |
 | GPU uniform layout | TypeScript offsets match the WGSL struct | `web/src/uniforms.test.ts` |

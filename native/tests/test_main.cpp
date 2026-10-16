@@ -10,6 +10,7 @@
 
 #include "kerr.cuh"
 #include "minkowski.cuh"
+#include "reissner-nordstrom.cuh"
 #include "schwarzschild.cuh"
 #include "rm/analytic.h"
 #include "rm/geodesic.h"
@@ -87,11 +88,12 @@ static void test_generated_matches_js() {
     if (id == "schwarzschild") worst = max_metric_error<rm::schwarzschild::Metric>(cases, tol);
     else if (id == "kerr") worst = max_metric_error<rm::kerr::Metric>(cases, tol);
     else if (id == "minkowski") worst = max_metric_error<rm::minkowski::Metric>(cases, tol);
+    else if (id == "reissner-nordstrom") worst = max_metric_error<rm::reissner_nordstrom::Metric>(cases, tol);
     CHECK(worst >= 0, "fixture has metric '%s' with no compiled-in header; add it to test_main.cpp", id.c_str());
-    if (worst >= 0) std::printf("    %-14s %zu points, max relative difference %.2e (tolerance %.0e)\n", id.c_str(), cases.size(), worst, tol);
+    if (worst >= 0) std::printf("    %-18s %zu points, max relative difference %.2e (tolerance %.0e)\n", id.c_str(), cases.size(), worst, tol);
     metrics++;
   }
-  CHECK(metrics == 3, "expected 3 metrics in the fixture, found %d", metrics);
+  CHECK(metrics == 4, "expected 4 metrics in the fixture, found %d", metrics);
 }
 
 // --- Geodesics with the generated metrics -------------------------------------
@@ -228,7 +230,8 @@ static void test_fused_rhs_matches_generic() {
     if (id == "schwarzschild") worst = fused_rhs_difference<rm::schwarzschild::Metric>(m["cases"]);
     else if (id == "kerr") worst = fused_rhs_difference<rm::kerr::Metric>(m["cases"]);
     else if (id == "minkowski") worst = fused_rhs_difference<rm::minkowski::Metric>(m["cases"]);
-    std::printf("    %-14s fused vs generic right-hand side: max difference %.2e (relative to the largest component)\n", id.c_str(), worst);
+    else if (id == "reissner-nordstrom") worst = fused_rhs_difference<rm::reissner_nordstrom::Metric>(m["cases"]);
+    std::printf("    %-18s fused vs generic right-hand side: max difference %.2e (relative to the largest component)\n", id.c_str(), worst);
     CHECK(worst >= 0 && worst < 1e-13, "%s: %g", id.c_str(), worst);
   }
 }

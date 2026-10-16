@@ -42,6 +42,30 @@
       ]
     },
     {
+      "id": "reissner-nordstrom",
+      "name": "Reissner–Nordström",
+      "description": "A non-rotating black hole with electric charge. Charge pulls the horizon and the photon orbit inward.",
+      "header": "reissner-nordstrom.cuh",
+      "hasHorizon": true,
+      "hasDisk": true,
+      "params": [
+        {
+          "name": "M",
+          "label": "Mass",
+          "value": 1,
+          "min": 0.2,
+          "max": 3
+        },
+        {
+          "name": "q",
+          "label": "Charge Q/M",
+          "value": 0.6,
+          "min": 0,
+          "max": 0.95
+        }
+      ]
+    },
+    {
       "id": "schwarzschild",
       "name": "Schwarzschild",
       "description": "A non-rotating black hole, in outgoing Kerr-Schild coordinates.",

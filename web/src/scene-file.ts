@@ -101,10 +101,12 @@ export function sceneToSettings(scene: SceneFile, base: Settings = defaultSettin
 
 /** The scene the viewer currently shows, at the given image size. */
 export function settingsToScene(settings: Settings, params: number[], width: number, height: number, time: number, name = 'exported'): SceneFile {
-  const { metric } = loadSpacetime(settings.spacetime);
+  const spacetime = settings.spacetime;
+  if (spacetime === 'custom') throw new Error('Scene files only reference catalog spacetimes; share a custom metric with its link instead');
+  const { metric } = loadSpacetime(spacetime);
   return {
     name,
-    spacetime: settings.spacetime,
+    spacetime,
     params: Object.fromEntries(metric.params.map((p, i) => [p.name, params[i]])),
     camera: { radius: settings.camRadius, yaw: settings.camYaw, pitch: settings.camPitch, fovDegrees: settings.fovDegrees },
     resolution: [width, height],

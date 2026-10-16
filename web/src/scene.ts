@@ -10,26 +10,38 @@ import {
 } from '../../compiler/src/index.ts';
 import { catalog, type CatalogName } from '../../metrics/index.ts';
 import { orbitCamera } from './camera.ts';
-import type { Settings } from './settings.ts';
+import type { Settings, SpacetimeId } from './settings.ts';
 
 export interface LoadedSpacetime {
-  name: CatalogName;
+  name: SpacetimeId;
+  /** The metric file this was compiled from. */
+  source: string;
   metric: CompiledMetric;
   js: JsMetric;
   wgsl: string;
 }
 
-const cache = new Map<CatalogName, LoadedSpacetime>();
+const cache = new Map<string, LoadedSpacetime>();
 
-/** Compiles a catalog spacetime once for both the CPU (camera) and GPU (tracer). */
-export function loadSpacetime(name: CatalogName): LoadedSpacetime {
-  let loaded = cache.get(name);
+/**
+ * Compiles a metric source once for both the CPU (camera) and GPU (tracer).
+ * Throws MetricSyntaxError for bad source, or Error when the GPU backend
+ * cannot take it (too many parameters).
+ */
+export function loadSource(source: string, name: SpacetimeId = 'custom'): LoadedSpacetime {
+  const key = `${name}\n${source}`;
+  let loaded = cache.get(key);
   if (!loaded) {
-    const metric = compileMetric(catalog[name]);
-    loaded = { name, metric, js: compileToJs(metric), wgsl: compileToWgsl(metric) };
-    cache.set(name, loaded);
+    const metric = compileMetric(source);
+    loaded = { name, source, metric, js: compileToJs(metric), wgsl: compileToWgsl(metric) };
+    if (cache.size > 32) cache.clear();
+    cache.set(key, loaded);
   }
   return loaded;
+}
+
+export function loadSpacetime(name: CatalogName): LoadedSpacetime {
+  return loadSource(catalog[name], name);
 }
 
 export function paramsFor(loaded: LoadedSpacetime, settings: Settings): number[] {

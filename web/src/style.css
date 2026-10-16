@@ -169,6 +169,102 @@ html, body {
 .notice h2 { margin: 0 0 6px; font: italic 400 30px var(--name); }
 .notice p { margin: 0; color: var(--plate-dim); max-width: 42ch; }
 
+/* --- Metric worksheet: a ruled sheet set into the chart ------------------ */
+
+.field.editing .marks { visibility: hidden; }
+
+.worksheet {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(460px, 48%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  background: color-mix(in srgb, var(--ink) 95%, transparent);
+  border: 1px solid var(--rule);
+  outline: 1px solid color-mix(in srgb, var(--ink) 95%, transparent);
+  outline-offset: 2px;
+  z-index: 3;
+}
+
+.ws-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ws-head h2 { margin: 0; font: italic 400 24px/1 var(--name); }
+
+.ws-button {
+  font: 600 13px var(--label);
+  letter-spacing: 0.04em;
+  color: var(--plate);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--scale);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.ws-button:hover { border-color: var(--red); }
+
+.ws-start { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--plate-dim); }
+.ws-start select {
+  font: italic 400 15px var(--name);
+  color: var(--plate);
+  background: var(--ink);
+  border: 0;
+  border-bottom: 1px solid var(--scale);
+  padding: 2px 4px 2px 0;
+}
+
+.ws-editor {
+  flex: 1;
+  min-height: 160px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  border: 1px solid var(--rule);
+  background: #060a14;
+  overflow: hidden;
+}
+.ws-gutter,
+.ws-editor textarea {
+  margin: 0;
+  padding: 8px 10px;
+  font: 12.5px/1.55 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.ws-gutter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--scale);
+  border-right: 1px solid var(--rule);
+  overflow: hidden;
+  user-select: none;
+  min-width: 3.4em;
+}
+.ws-gutter .error { color: #fff; background: var(--red); padding: 0 3px; margin-right: -3px; }
+.ws-editor textarea {
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--plate);
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+  caret-color: var(--red-ink);
+}
+.ws-editor:focus-within { border-color: var(--plate-dim); }
+
+.ws-status { margin: 0; font-size: 13px; line-height: 1.35; min-height: 2.7em; color: var(--plate-dim); }
+.ws-status[data-kind='error'] { color: var(--red-ink); }
+.ws-status[data-kind='ok'] { color: var(--plate); }
+
+.ws-actions { display: flex; gap: 16px; }
+
+.ws-help { font-size: 12.5px; color: var(--plate-dim); border-top: 1px solid var(--rule); padding-top: 8px; }
+.ws-help summary { cursor: pointer; color: var(--plate); font-weight: 600; }
+.ws-help p { margin: 6px 0 0; line-height: 1.4; }
+.ws-help code { font: 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--plate); }
+
 /* --- Key band ------------------------------------------------------------ */
 
 .key {
@@ -371,6 +467,8 @@ input[type='range']:focus-visible { outline-offset: 3px; }
   .key-col:nth-child(even) { border-left: 1px solid var(--rule); padding-left: 14px; }
   .key-col:first-child, .key-col:nth-child(2) { border-top: 0; }
   .plate-title { top: 12px; left: 12px; max-width: 80%; }
+  .worksheet { left: 8px; right: 8px; top: 8px; bottom: 8px; width: auto; }
+  .ws-help { display: none; }
   .chart-desc { display: none; }
 }
 

@@ -137,3 +137,55 @@ describe('Kerr', () => {
     }
   });
 });
+
+describe('Reissner–Nordström', () => {
+  const M = 1;
+  const q = 0.8;
+  const Q = q * M;
+  const st = spacetime(catalog['reissner-nordstrom'], { q });
+  const js = compileToJs(compileMetric(catalog['reissner-nordstrom']));
+
+  it('captures rays inside its critical impact parameter, which charge shrinks below sqrt(27) M', () => {
+    // Photon sphere r = (3M + sqrt(9M^2 - 8Q^2)) / 2; b_c = r / sqrt(1 - 2M/r + Q^2/r^2).
+    const rPh = (3 * M + Math.sqrt(9 * M * M - 8 * Q * Q)) / 2;
+    const bCrit = rPh / Math.sqrt(1 - (2 * M) / rPh + (Q * Q) / (rPh * rPh));
+    expect(bCrit).toBeLessThan(0.9 * Math.sqrt(27) * M);
+    expect(st.trace(cameraRay(st, [1000, 0.99 * bCrit, 0], [-1, 0, 0]), { stepFraction: 0.002 }).fate).toBe('captured');
+    expect(st.trace(cameraRay(st, [1000, 1.01 * bCrit, 0], [-1, 0, 0]), { stepFraction: 0.002 }).fate).toBe('escaped');
+  });
+
+  it('places the disk inner edge on the root of the ISCO cubic', () => {
+    // rho^3 - 6 rho^2 + 9 q^2 rho - 4 q^4 = 0, with rho = 6 at q = 0 and 4 at q = 1.
+    for (const charge of [0, 0.2, 0.5, 0.8, 0.95, 1]) {
+      const rho = js.disk!.inner([0, 0, 0, 0], [M, charge]) / M;
+      const residual = rho ** 3 - 6 * rho ** 2 + 9 * charge ** 2 * rho - 4 * charge ** 4;
+      expect(Math.abs(residual)).toBeLessThan(1e-9);
+    }
+    expect(js.disk!.inner([0, 0, 0, 0], [M, 0])).toBeCloseTo(6, 12);
+    expect(js.disk!.inner([0, 0, 0, 0], [M, 1])).toBeCloseTo(4, 9);
+  });
+
+  it('moves the disk at the angular velocity of circular geodesics, derived from the metric', () => {
+    // In the equatorial plane at (x, 0, 0), d/dphi = x d/dy and g_tphi = 0, so circular
+    // geodesics satisfy d_x g_tt + Omega^2 d_x g_phiphi = 0 with g_phiphi = x^2 g_yy.
+    const g = new Float64Array(16), dg = new Float64Array(64);
+    for (const r of [4, 7, 12, 19]) {
+      js.evaluate([0, r, 0, 0], [M, q], g, dg);
+      const dgtt = dg[16 * 1 + 0];
+      const dgphiphi = 2 * r * g[10] + r * r * dg[16 * 1 + 10]; // g_yy is index 10
+      const omegaFromMetric = Math.sqrt(-dgtt / dgphiphi);
+      expect(js.disk!.omega([0, r, 0, 0], [M, q]) / omegaFromMetric).toBeCloseTo(1, 10);
+    }
+  });
+
+  it('reduces to Schwarzschild without charge', () => {
+    const rn = compileToJs(compileMetric(catalog['reissner-nordstrom']));
+    const s = compileToJs(compileMetric(catalog.schwarzschild));
+    const a = new Float64Array(16), b = new Float64Array(16), scratch = new Float64Array(64);
+    for (const x of [[0, 7, -3, 2], [1, -4, 9, 5]]) {
+      rn.evaluate(x, [M, 0], a, scratch);
+      s.evaluate(x, [M], b, scratch);
+      for (let k = 0; k < 16; k++) expect(a[k]).toBeCloseTo(b[k], 14);
+    }
+  });
+});
