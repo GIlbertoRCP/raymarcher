@@ -4,6 +4,7 @@
 #include <nvrtc.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -81,6 +82,15 @@ std::vector<CatalogEntry> load_catalog(const SourcePaths& paths) {
   return out;
 }
 
+/** The C++ namespace of a catalog entry: cudaIdentifier in compiler/src/backend-cuda.ts. */
+static std::string cuda_identifier(const std::string& id) {
+  std::string out = id;
+  for (char& c : out)
+    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') c = '_';
+  if (!out.empty() && std::isdigit(static_cast<unsigned char>(out[0]))) out = "_" + out;
+  return out;
+}
+
 NvrtcTracer::NvrtcTracer(SourcePaths paths) : paths_(std::move(paths)) {
   RT_CHECK(cudaFree(nullptr));  // create the runtime's primary context, which the driver API then uses
   CU_CHECK(cuInit(0));
@@ -139,7 +149,7 @@ bool NvrtcTracer::select(const CatalogEntry& metric, Precision precision, Module
   }
   const std::string arch_opt = "--gpu-architecture=" + arch_;
   const std::string real_opt = std::string("-DRM_REAL=") + (fp64 ? "double" : "float");
-  const std::string metric_opt = "-DRM_METRIC=" + metric.id;
+  const std::string metric_opt = "-DRM_METRIC=" + cuda_identifier(metric.id);
   // RM_NVRTC_VERBOSE=1 prints ptxas register and spill counts for each kernel.
   const bool verbose = std::getenv("RM_NVRTC_VERBOSE") != nullptr;
   std::vector<const char*> opts = {"--std=c++17", arch_opt.c_str(), real_opt.c_str(), metric_opt.c_str(),

@@ -103,5 +103,40 @@ inline void kerr_shadow_point(double r, double a, double M, double theta_o, doub
   beta2 = eta + a * a * c * c - xi * xi * c * c / (s * s);
 }
 
+// --- Reissner-Nordstrom (charge Q = q M), f(r) = 1 - 2M/r + Q^2/r^2 ---------------
+
+/** Circular photon orbit: r = (3M + sqrt(9 M^2 - 8 Q^2)) / 2. */
+inline double rn_photon_orbit(double q, double M) {
+  const double Q = q * M;
+  return 0.5 * (3 * M + std::sqrt(9 * M * M - 8 * Q * Q));
+}
+
+/**
+ * ISCO: the largest root of rho^3 - 6 rho^2 + 9 q^2 rho - 4 q^4 = 0, rho = r/M
+ * (6M at q = 0, 4M at q = 1), found by bisection on [3.9, 6.5] where the cubic
+ * has exactly one root for 0 <= q <= 1. Independent of the closed form in the
+ * metric file.
+ */
+inline double rn_isco(double q, double M) {
+  const double s = q * q;
+  const auto p = [&](double r) { return ((r - 6) * r + 9 * s) * r - 4 * s * s; };
+  double lo = 3.9, hi = 6.5;
+  for (int i = 0; i < 200; i++) {
+    const double mid = 0.5 * (lo + hi);
+    (p(mid) < 0 ? lo : hi) = mid;
+  }
+  return 0.5 * (lo + hi) * M;
+}
+
+/** Shadow angle for a static observer at r: sin(alpha) = b_c sqrt(f(r)) / r with b_c = r_ph / sqrt(f(r_ph)). */
+inline double rn_shadow_angle(double r, double q, double M) {
+  const double Q = q * M;
+  const auto f = [&](double x) { return 1 - 2 * M / x + Q * Q / (x * x); };
+  const double rph = rn_photon_orbit(q, M);
+  const double bc = rph / std::sqrt(f(rph));
+  const double s = bc * std::sqrt(f(r)) / r;
+  return r >= rph ? std::asin(s) : PI - std::asin(s);
+}
+
 }  // namespace analytic
 }  // namespace rm

@@ -14,7 +14,7 @@
 // validation/results/cross-backend/<scene>.png:
 //   left   CUDA fate map; red = fates differ away from a boundary, yellow = differ on a boundary
 //   right  |CUDA - WebGPU| after tone mapping, x4
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,10 +77,11 @@ function heatmap(cuda: Render, web: Render, w: number, h: number, a: Uint8Array,
   return encodePng(2 * w, h, rgb);
 }
 
-const scenes = existsSync(join(out, setA))
-  ? readdirSync(join(out, setA)).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)).sort()
-  : [];
-if (!scenes.length) throw new Error(`No renders in validation/out/${setA}`);
+// Every scene either set rendered: one missing from either side fails the gate.
+const rendered = (set: string) =>
+  existsSync(join(out, set)) ? readdirSync(join(out, set)).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)) : [];
+const scenes = [...new Set([...rendered(setA), ...rendered(setB)])].sort();
+if (!scenes.length) throw new Error(`No renders in validation/out/${setA} or ${setB}`);
 
 mkdirSync(heatmapDir, { recursive: true });
 const rows = [];
@@ -88,7 +89,7 @@ let missing = 0;
 for (const scene of scenes) {
   const cuda = load(setA, scene), web = load(setB, scene);
   if (!cuda || !web) {
-    console.log(`${scene}: missing in ${setB}, skipped`);
+    console.log(`MISSING ${scene}: no render in ${!cuda ? setA : setB}`);
     missing++;
     continue;
   }
@@ -137,7 +138,9 @@ const gitHash = (() => {
 })();
 const dirty = (() => {
   try {
-    return execSync('git status --porcelain', { cwd: root }).toString().trim().length > 0;
+    // Result files (this script's and raymarcher --validate's) do not count as changes to the code under test.
+    const args = ['status', '--porcelain', '--', '.', ':(exclude)validation/results', ':(exclude)docs/benchmarks'];
+    return execFileSync('git', args, { cwd: root }).toString().trim().length > 0;
   } catch {
     return false;
   }

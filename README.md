@@ -95,6 +95,7 @@ The Kerr shadow test is not trivially satisfiable: a mirrored outline (prograde 
 | Kerr shadow outline, a = 0.3 to 0.99, inclination 17°, 45°, 90° | Bardeen (1973) | 2.5 × 10⁻¹⁰ M | 10⁻⁴ M |
 | Circular photon orbits, a = 0 to 0.99 | Bardeen, Press & Teukolsky (1972) | 9.7 × 10⁻¹² M | 10⁻⁸ M |
 | ISCO from the metric's derivatives | Bardeen, Press & Teukolsky (1972) | 3.1 × 10⁻⁷ M | 10⁻⁶ M |
+| Reissner–Nordström, Q/M = 0 to 0.95: photon orbit, ISCO, shadow at 10 M and 26 M | (3M + √(9M² − 8Q²))/2; root of ρ³ − 6ρ² + 9q²ρ − 4q⁴; sin α = b_c √f(r) / r | 1.1 × 10⁻¹² M; 1.9 × 10⁻⁷ M; 6.3 × 10⁻¹⁴ rad | 10⁻⁸ M; 10⁻⁶ M; 10⁻⁹ rad |
 | Null constraint over a full Kerr frame (p99) | H = 0 | 1.5 × 10⁻¹⁰ | 10⁻⁸ |
 | RK4 convergence | Order 4 | Fitted order 3.990 to 3.995 | 3.8 to 4.2 |
 | RK45 error control, rtol 10⁻⁴ to 10⁻¹² | Requested tolerance | 1.7 × rtol | 10 × rtol |
@@ -103,7 +104,7 @@ The interactive integrator (RK4, step 0.03 r) is less accurate by design: its sw
 
 ### CUDA and WebGPU agree
 
-The two renderers trace the same 21 scenes (`scenes/`: Schwarzschild and Kerr at a = 0.6 and 0.95, three inclinations, disk on and off, plus flat space). Every ray ends the same way in both: captured, escaped or on the disk. Across 10.9 million pixels no fate differs (`validation/results/cross-backend.json`; the gate is 99.5%). The fp32 and fp64 CUDA renders agree just as exactly. Rounding moves a fate boundary by far less than a pixel; the integrator's own error, which both backends share, is what the fp64 checks above measure.
+The two renderers trace the same 27 scenes (`scenes/`: Schwarzschild, Kerr at a = 0.6 and 0.95, and Reissner–Nordström at Q = 0.8 M, at three inclinations with the disk on and off, plus flat space). Every ray ends the same way in both: captured, escaped or on the disk. Across 14 million pixels no fate differs (`validation/results/cross-backend.json`; the gate is 99.5%). The fp32 and fp64 CUDA renders agree just as exactly. Rounding moves a fate boundary by far less than a pixel; the integrator's own error, which both backends share, is what the fp64 checks above measure.
 
 ## Running it
 

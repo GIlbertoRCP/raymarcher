@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -425,6 +426,131 @@ CheckResult check_kerr_shadow(Gpu& gpu) {
   return c;
 }
 
+/**
+ * Circular equatorial geodesics at points (x, 0, 0) from g and its derivatives
+ * evaluated on the GPU: Omega solves d_r g_tt + 2 Omega d_r g_tphi + Omega^2 d_r g_phiphi = 0
+ * (prograde = larger root), and E = -(g_tt + Omega g_tphi) u^t. At (x, 0, 0), d_phi = x d_y.
+ */
+void circular_orbits(Gpu& gpu, const double* p8, const std::vector<double>& xs, bool pro, std::vector<double>& energy,
+                     std::vector<double>& omega) {
+  std::vector<double> pts, g, dg;
+  for (double x : xs) pts.insert(pts.end(), {0, x, 0, 0});
+  gpu.metric_eval(p8, pts, g, dg);
+  energy.clear();
+  omega.clear();
+  for (size_t i = 0; i < xs.size(); i++) {
+    const double x = xs[i];
+    const double* G = &g[16 * i];
+    const double* D = &dg[64 * i + 16];  // d/dx
+    const double gtt = G[0], gtp = x * G[2], gpp = x * x * G[10];
+    const double A = D[0], B = G[2] + x * D[2], C = 2 * x * G[10] + x * x * D[10];
+    const double disc = std::sqrt(B * B - A * C);
+    const double w1 = (-B + disc) / C, w2 = (-B - disc) / C;
+    const double w = pro ? std::max(w1, w2) : std::min(w1, w2);
+    const double ut = 1 / std::sqrt(-(gtt + 2 * w * gtp + w * w * gpp));
+    energy.push_back(-(gtt + w * gtp) * ut);
+    omega.push_back(w);
+  }
+}
+
+/** Minimum of the circular-orbit energy E(x) on [lo, hi] by golden-section search: the ISCO. */
+double isco_from_metric(Gpu& gpu, const double* p8, double lo, double hi, bool pro) {
+  const double gr = (std::sqrt(5.0) - 1) / 2;
+  std::vector<double> e, w;
+  for (int it = 0; it < 120 && hi - lo > 1e-13; it++) {
+    const double x1 = hi - gr * (hi - lo), x2 = lo + gr * (hi - lo);
+    circular_orbits(gpu, p8, {x1, x2}, pro, e, w);
+    if (e[0] < e[1]) hi = x2;
+    else lo = x1;
+  }
+  return 0.5 * (lo + hi);
+}
+
+/** Launch radius on the x axis that separates tangential rays falling in from escaping: the circular photon orbit. */
+double photon_orbit_traced(Gpu& gpu, const std::vector<double>& params, double lo, double hi, bool prograde) {
+  const rm::BatchOptions o = rk45(params, 1e-12, 100);
+  const Vec3 dir = {0, prograde ? -1.0 : 1.0, 0};  // dir -y at +x follows light moving +y
+  for (int it = 0; it < 60 && hi - lo > 1e-14; it++) {
+    const double mid = 0.5 * (lo + hi);
+    if (gpu.coordinate_rays(o, {Vec3{mid, 0, 0}}, {dir})[0].fate == rm::FATE_CAPTURED) lo = mid;
+    else hi = mid;
+  }
+  return 0.5 * (lo + hi);
+}
+
+/** Shadow edge angle seen by a static camera at distance R (bisection on ray fate). */
+double shadow_angle_traced(Gpu& gpu, const std::vector<double>& params, double R) {
+  double p8[rm::MAX_PARAMS] = {};
+  std::copy(params.begin(), params.end(), p8);
+  const rm::CameraFrame cam = gpu.camera(p8, R, 0, 0);
+  const rm::BatchOptions o = rk45(params, 1e-12, std::max(2 * R, 100.0));
+  double lo = 0, hi = PI / 2;
+  for (int it = 0; it < 60 && hi - lo > 1e-14; it++) {
+    const double mid = 0.5 * (lo + hi);
+    const int fate = gpu.camera_rays(o, cam, {Vec3{std::sin(mid), 0, std::cos(mid)}})[0].fate;
+    if (fate == rm::FATE_CAPTURED) lo = mid;
+    else if (fate == rm::FATE_ESCAPED) hi = mid;
+    else throw std::runtime_error("shadow bisection: unfinished ray");
+  }
+  return 0.5 * (lo + hi);
+}
+
+CheckResult check_reissner_nordstrom(Gpu& gpu) {
+  gpu.use("reissner-nordstrom");
+  const std::vector<double> charges = {0, 0.3, 0.6, 0.8, 0.95};
+  const std::vector<double> distances = {10, 26};
+  double worst_photon = 0, worst_isco = 0, worst_omega = 0, worst_shadow = 0;
+  std::string rows = "[";
+  for (size_t k = 0; k < charges.size(); k++) {
+    const double q = charges[k];
+    const std::vector<double> params = {1, q};
+    double p8[rm::MAX_PARAMS] = {1, q};
+    const double r_plus = 1 + std::sqrt(1 - q * q);
+    const double ph = photon_orbit_traced(gpu, params, r_plus * 1.02, 5, true);
+    const double ph_expect = an::rn_photon_orbit(q, 1);
+    const double isco = isco_from_metric(gpu, p8, ph_expect * 1.05, 12, true);
+    const double isco_expect = an::rn_isco(q, 1);
+    std::vector<double> xs, e, w;
+    for (double r = 4; r <= 20; r += 2) xs.push_back(r);
+    circular_orbits(gpu, p8, xs, true, e, w);
+    for (size_t i = 0; i < xs.size(); i++) {
+      const double expect = std::sqrt(xs[i] - q * q) / (xs[i] * xs[i]);  // sqrt(M r - Q^2) / r^2, M = 1
+      worst_omega = std::max(worst_omega, std::fabs(w[i] - expect) / expect);
+    }
+    std::vector<double> shadow, shadow_expect;
+    for (double R : distances) {
+      shadow.push_back(shadow_angle_traced(gpu, params, R));
+      shadow_expect.push_back(an::rn_shadow_angle(R, q, 1));
+      worst_shadow = std::max(worst_shadow, std::fabs(shadow.back() - shadow_expect.back()));
+    }
+    worst_photon = std::max(worst_photon, std::fabs(ph - ph_expect));
+    worst_isco = std::max(worst_isco, std::fabs(isco - isco_expect));
+    rows += std::string(k ? ", " : "") + "{\"q\": " + num(q) + ", \"photon_orbit\": {\"traced\": " + num(ph) +
+            ", \"analytic\": " + num(ph_expect) + "}, \"isco\": {\"from_metric\": " + num(isco) + ", \"cubic_root\": " +
+            num(isco_expect) + "}, \"shadow_camera_r_over_M\": " + arr(distances) + ", \"shadow_traced_rad\": " + arr(shadow) +
+            ", \"shadow_predicted_rad\": " + arr(shadow_expect) + "}";
+    std::printf("    RN q = %.2f: photon %.12f (analytic %.12f), ISCO %.9f (cubic %.9f), shadow at 26 M %.12f (predicted %.12f)\n", q,
+                ph, ph_expect, isco, isco_expect, shadow.back(), shadow_expect.back());
+  }
+  CheckResult c;
+  c.id = "reissner-nordstrom";
+  c.title = "Reissner–Nordström: photon orbit, ISCO and shadow";
+  c.description =
+      "Charged black hole, Q = q M with q = 0, 0.3, 0.6, 0.8, 0.95. Photon orbit: bisection on the radius of "
+      "tangential rays (falling in vs escaping) against r = (3M + sqrt(9M^2 - 8Q^2)) / 2. ISCO: minimum of the "
+      "circular-orbit energy from the metric's derivatives on the GPU, against the root of rho^3 - 6 rho^2 + 9 q^2 rho - "
+      "4 q^4 = 0 found numerically (not the metric file's closed form). Omega: against sqrt(M r - Q^2) / r^2, the "
+      "disk model's formula. Shadow: static cameras at 10 M and 26 M, against sin(alpha) = b_c sqrt(f(r)) / r with "
+      "f = 1 - 2M/r + Q^2/r^2 and b_c = r_ph / sqrt(f(r_ph)).";
+  c.metrics.push_back(at_most("max |traced - analytic| photon orbit radius", worst_photon, 1e-8, "M"));
+  c.metrics.push_back(at_most("max |metric - cubic root| ISCO radius", worst_isco, 1e-6, "M",
+                              "golden-section search on E(r); limited by the flatness of E at its minimum"));
+  c.metrics.push_back(at_most("max relative |Omega - sqrt(M r - Q^2)/r^2|, r = 4..20 M", worst_omega, 1e-12, ""));
+  c.metrics.push_back(at_most("max |traced - predicted| shadow angle", worst_shadow, 1e-9, "rad"));
+  c.data = "{\"rows\": " + rows + "]}";
+  return c;
+}
+
 CheckResult check_orbits(Gpu& gpu) {
   CheckResult c;
   c.id = "orbits";
@@ -469,24 +595,7 @@ CheckResult check_orbits(Gpu& gpu) {
 
       // Circular timelike orbits from the metric.
       auto circular = [&](const std::vector<double>& xs, bool pro, std::vector<double>& energy, std::vector<double>& omega) {
-        std::vector<double> pts, g, dg;
-        for (double x : xs) pts.insert(pts.end(), {0, x, 0, 0});
-        gpu.metric_eval(p8, pts, g, dg);
-        energy.clear();
-        omega.clear();
-        for (size_t i = 0; i < xs.size(); i++) {
-          const double x = xs[i];
-          const double* G = &g[16 * i];
-          const double* D = &dg[64 * i + 16];  // d/dx
-          const double gtt = G[0], gtp = x * G[2], gpp = x * x * G[10];
-          const double A = D[0], B = G[2] + x * D[2], C = 2 * x * G[10] + x * x * D[10];
-          const double disc = std::sqrt(B * B - A * C);
-          const double w1 = (-B + disc) / C, w2 = (-B - disc) / C;
-          const double w = pro ? std::max(w1, w2) : std::min(w1, w2);
-          const double ut = 1 / std::sqrt(-(gtt + 2 * w * gtp + w * w * gpp));
-          energy.push_back(-(gtt + w * gtp) * ut);
-          omega.push_back(w);
-        }
+        circular_orbits(gpu, p8, xs, pro, energy, omega);
       };
       double isco[2];
       for (int pro = 0; pro < 2; pro++) {
@@ -721,7 +830,8 @@ int run_validation(NvrtcTracer& tracer, const std::vector<CatalogEntry>& catalog
                    const std::string& out_dir) {
   std::filesystem::create_directories(out_dir);
   const std::string commit = shell("git rev-parse --short HEAD");
-  const bool dirty = !shell("git status --porcelain").empty();
+  // Result files this suite and validation/compare.ts write do not count as changes to the code under test.
+  const bool dirty = !shell("git status --porcelain -- . \":(exclude)validation/results\" \":(exclude)docs/benchmarks\"").empty();
   char date[32];
   const std::time_t now = std::time(nullptr);
   std::strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now));
@@ -737,12 +847,16 @@ int run_validation(NvrtcTracer& tracer, const std::vector<CatalogEntry>& catalog
       {"shadow-schwarzschild", [&] { return check_schwarzschild_shadow(gpu); }},
       {"shadow-kerr", [&] { return check_kerr_shadow(gpu); }},
       {"orbits", [&] { return check_orbits(gpu); }},
+      {"reissner-nordstrom", [&] { return check_reissner_nordstrom(gpu); }},
       {"constraint-drift", [&] { return check_constraint_drift(tracer, catalog); }},
       {"convergence", [&] { return check_convergence(gpu); }},
   };
   std::string summary = "[";
   bool all = true;
+  // RM_VALIDATE_ONLY=<check> runs one check (for development; use with --out to a scratch folder).
+  const char* only = std::getenv("RM_VALIDATE_ONLY");
   for (size_t i = 0; i < checks.size(); i++) {
+    if (only && std::string(only) != checks[i].first) continue;
     std::printf("[%s]\n", checks[i].first);
     const auto t0 = std::chrono::steady_clock::now();
     const CheckResult r = checks[i].second();
