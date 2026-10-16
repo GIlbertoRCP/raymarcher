@@ -41,3 +41,9 @@ raymarcher_snap_*.bmp
 # Design tools
 .impeccable/
 
+
+# Native build directories
+native/build-*/
+
+# Validation renders (large; summaries live in validation/results/)
+validation/out/

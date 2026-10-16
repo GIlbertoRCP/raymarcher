@@ -20,6 +20,8 @@ export interface Settings {
   camYaw: number; // radians
   camPitch: number; // radians
   fovDegrees: number; // vertical field of view
+  /** Colour pixels by ray fate (escaped / captured / disk / unfinished) instead of shading them. */
+  debugFate?: boolean;
 }
 
 export function defaultSettings(): Settings {

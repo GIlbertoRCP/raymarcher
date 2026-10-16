@@ -1,0 +1,10 @@
+{
+  "check": "shadow-schwarzschild",
+  "title": "Schwarzschild shadow radius vs camera distance",
+  "description": "For a static observer at r, the angle between the direction to the hole and the shadow edge is found by bisection on ray fate (captured / escaped) and compared with sin(alpha) = sqrt(27) M sqrt(1 - 2M/r) / r.",
+  "pass": true,
+  "metrics": [{"name": "max |traced - predicted| shadow angle, RK45 fp64 rtol 1e-12", "value": 1.3433698597964394e-13, "tolerance": 1.0000000000000001e-09, "unit": "rad", "pass": true}],
+  "gpu": "NVIDIA GeForce RTX 3070", "arch": "sm_86", "driver": "617.42", "cuda_driver_api": "13.4", "nvrtc": "13.3", "precision": "fp64", "git": {"commit": "9788634", "uncommitted_changes": true}, "date": "2026-10-15T23:26:41Z",
+  "runtime_s": 33.310468999999998,
+  "data": {"camera_r_over_M": [4, 5, 6, 8, 10, 15, 26, 50, 100, 1000], "traced_rad": [1.1644185461107011, 0.93564929513988648, 0.78539816339754032, 0.59740641664542349, 0.48336128221201002, 0.32835918237438, 0.1932114838478165, 0.10200015330371427, 0.051461996376276839, 0.00519097698246324], "predicted_rad": [1.1644185461105667, 0.93564929513978801, 0.78539816339744839, 0.59740641664535021, 0.48336128221195218, 0.32835918237435208, 0.19321148384780606, 0.10200015330371326, 0.051461996376274736, 0.0051909769824620014], "abs_error_rad": [1.3433698597964394e-13, 9.8476782284251385e-14, 9.1926466438962962e-14, 7.3274719625260332e-14, 5.7842619582970656e-14, 2.7922109069322687e-14, 1.0436096431476471e-14, 1.0130785099704553e-15, 2.1024848528838902e-15, 1.2385925618474403e-15]}
+}

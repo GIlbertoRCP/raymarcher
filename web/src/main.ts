@@ -1,6 +1,7 @@
 import type { CatalogName } from '../../metrics/index.ts';
 import { orbitCamera, type Vec3 } from './camera.ts';
 import { loadSpacetime } from './scene.ts';
+import { parseScene, sceneToSettings, type SceneFile } from './scene-file.ts';
 import { defaultSettings, SPACETIMES, type Background } from './settings.ts';
 import type { DiskEdgeMark, ShadowEdge } from './shadow.ts';
 import type { TraceRequest } from './shadow.worker.ts';
@@ -21,6 +22,28 @@ let fps = 0;
 const viewer = new Viewer(canvas, defaultSettings(), { onFrame: f => (fps = f) });
 viewer.animate = !reducedMotion;
 const s = viewer.settings;
+
+// --- Scene files -------------------------------------------------------------
+// ?scene=<name> loads scenes/<name>.json, ?sceneJson=<json> an inline scene and
+// ?debugFate=1 colours pixels by ray fate. Applied before the controls bind.
+
+const sceneFiles = import.meta.glob('../../scenes/*.json', { eager: true, import: 'default' }) as Record<string, unknown>;
+const query = new URLSearchParams(location.search);
+let loadedScene: SceneFile | null = null;
+try {
+  const named = query.get('scene');
+  const inline = query.get('sceneJson');
+  const source = inline ? JSON.parse(inline) : named ? sceneFiles[`../../scenes/${named}.json`] : null;
+  if (named && !inline && !source) throw new Error(`No scene named '${named}' in scenes/`);
+  if (source) {
+    loadedScene = parseScene(source);
+    Object.assign(s, sceneToSettings(loadedScene, s));
+    viewer.freezeTime(loadedScene.time);
+  }
+} catch (e) {
+  console.error(e);
+}
+if (query.get('debugFate') === '1') s.debugFate = true;
 
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, text?: string) {
   const el = document.createElementNS(SVG, tag);
@@ -412,5 +435,56 @@ start().catch(e => {
   $('notice').querySelector('p')!.textContent = e instanceof Error ? e.message : String(e);
 });
 
-// Handy for poking at the renderer from the console during development.
-if (import.meta.env.DEV) Object.assign(window, { viewer });
+// Development only: the console handle, an "Export scene" action, and the
+// capture hook that validation/capture-web.ts drives.
+if (import.meta.env.DEV) {
+  const exportButton = document.createElement('button');
+  exportButton.type = 'button';
+  exportButton.className = 'dev-export';
+  exportButton.textContent = 'Export scene (dev)';
+  exportButton.addEventListener('click', () => {
+    const scene = viewer.currentScene(`${viewer.spacetime.name}-export`);
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([JSON.stringify(scene, null, 2) + '\n'], { type: 'application/json' }));
+    link.download = `${scene.name}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+  document.querySelector('.readout')?.append(exportButton);
+
+  const base64 = (bytes: Uint8Array) => {
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(out);
+  };
+  const raymarcherCapture = async (raw: unknown) => {
+    const scene = parseScene(raw);
+    viewer.stop();
+    const { rgba, gpuMs } = await viewer.capture(scene);
+    const n = scene.resolution[0] * scene.resolution[1];
+    const rgb = new Float32Array(n * 3);
+    const fate = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      rgb[3 * i] = rgba[4 * i];
+      rgb[3 * i + 1] = rgba[4 * i + 1];
+      rgb[3 * i + 2] = rgba[4 * i + 2];
+      fate[i] = rgba[4 * i + 3];
+    }
+    const adapter = await navigator.gpu.requestAdapter();
+    return {
+      width: scene.resolution[0],
+      height: scene.resolution[1],
+      gpuMs,
+      adapter: adapter ? { vendor: adapter.info.vendor, architecture: adapter.info.architecture, description: adapter.info.description } : null,
+      userAgent: navigator.userAgent,
+      hdr: base64(new Uint8Array(rgb.buffer)),
+      fate: base64(fate),
+    };
+  };
+  const raymarcherTime = async (raw: unknown, frames = 10) => {
+    const scene = parseScene(raw);
+    viewer.stop();
+    return viewer.timeScene(scene, frames);
+  };
+  Object.assign(window, { viewer, raymarcherCapture, raymarcherTime });
+}

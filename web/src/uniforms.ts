@@ -24,7 +24,7 @@ export const UNIFORM_OFFSETS = {
 
 export const UNIFORM_BUFFER_SIZE = 160;
 
-export const FLAGS = { disk: 1, grid: 2, redshift: 4, stars: 8 } as const;
+export const FLAGS = { disk: 1, grid: 2, redshift: 4, stars: 8, debugFate: 16 } as const;
 
 /**
  * tan of half the vertical field of view. The field-of-view setting applies
@@ -74,6 +74,7 @@ export function packUniforms(settings: Settings, f: FrameInputs): ArrayBuffer {
   if (settings.background === 'grid') flags |= FLAGS.grid;
   if (settings.background === 'stars') flags |= FLAGS.stars;
   if (settings.redshift) flags |= FLAGS.redshift;
+  if (settings.debugFate) flags |= FLAGS.debugFate;
   u32(o.flags, flags);
   f32(o.lengthScale, f.lengthScale);
   return buffer;

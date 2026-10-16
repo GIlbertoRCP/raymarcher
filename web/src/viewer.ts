@@ -1,6 +1,7 @@
 import type { CatalogName } from '../../metrics/index.ts';
 import { Renderer } from './renderer.ts';
 import { cameraState, loadSpacetime, paramsFor, type CameraState, type LoadedSpacetime } from './scene.ts';
+import { sceneToSettings, settingsToScene, type SceneFile } from './scene-file.ts';
 import type { Settings } from './settings.ts';
 import { packUniforms } from './uniforms.ts';
 
@@ -104,6 +105,43 @@ export class Viewer {
 
   stop() {
     this.running = false;
+  }
+
+  /** Stops the disk texture at time t (seconds). */
+  freezeTime(t: number) {
+    this.animate = false;
+    this.frozenTime = t;
+  }
+
+  /** The scene on screen, as a scene file at the current render size. */
+  currentScene(name?: string): SceneFile {
+    const canvas = this.canvas;
+    return settingsToScene(this.settings, this.params(), canvas.width, canvas.height, this.frozenTime, name);
+  }
+
+  /**
+   * Renders a scene file offscreen at its exact resolution and returns linear
+   * RGB plus the fate of every ray (see Renderer.capture). Switches the view to it.
+   */
+  /** GPU time of the trace pass for a scene file (see Renderer.timeTrace). */
+  async timeScene(scene: SceneFile, frames: number) {
+    Object.assign(this.settings, sceneToSettings(scene, this.settings));
+    await this.setSpacetime(scene.spacetime);
+    const [width, height] = scene.resolution;
+    const params = this.params();
+    const cam = cameraState(this.spacetime, params, this.settings);
+    const uniforms = packUniforms(this.settings, { width, height, timeSeconds: scene.time, params, ...cam });
+    return this.renderer.timeTrace(uniforms, width, height, frames);
+  }
+
+  async capture(scene: SceneFile) {
+    Object.assign(this.settings, sceneToSettings(scene, this.settings));
+    await this.setSpacetime(scene.spacetime);
+    const [width, height] = scene.resolution;
+    const params = this.params();
+    const cam = cameraState(this.spacetime, params, this.settings);
+    const uniforms = packUniforms(this.settings, { width, height, timeSeconds: scene.time, params, ...cam });
+    return this.renderer.capture(uniforms, width, height);
   }
 
   private draw(timeSeconds: number) {

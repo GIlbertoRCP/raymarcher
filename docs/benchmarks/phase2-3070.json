@@ -1,0 +1,1432 @@
+{
+  "description": "Phase 2 benchmarks of the native CUDA tracer (NVRTC, generated metrics) on one RTX 3070. Every time is the trace kernel alone, measured with CUDA events (CUDA) or WebGPU timestamp queries (WebGPU): median of 20 frames after a warm-up unless stated. Scenes: the web app defaults for the main table; scene files in scenes/ for the comparisons.",
+  "date": "2026-10-15",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "arch": "sm_86",
+    "vram_mb": 8192,
+    "power_limit_w": 270,
+    "pcie_gen": 4
+  },
+  "software": {
+    "os": "Windows 11 Home 10.0.26200",
+    "driver": "617.42",
+    "cuda_driver_api": "13.4",
+    "cuda_toolkit": "13.3",
+    "nvrtc": "13.3",
+    "host_compiler": "MSVC 14.51 (Visual Studio 18 2026)",
+    "nvrtc_options_fp32": "--std=c++17 --gpu-architecture=sm_86 --generate-line-info --maxrregcount=128 --use_fast_math",
+    "nvrtc_options_fp64": "--std=c++17 --gpu-architecture=sm_86 --generate-line-info",
+    "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+  },
+  "conditions": [
+    "Normal desktop session; Wallpaper Engine and other apps kept the GPU 20-40% busy before runs (nvidia-smi). Expect a few percent of run-to-run noise; the optimisation table interleaves variants to limit drift.",
+    "The browser pane and dev servers were closed during CUDA runs; the WebGPU timings ran in headless Chrome with no CUDA work running."
+  ],
+  "integrators": {
+    "rk4": "fixed step h = step_fraction * r (0.03), max 300 steps: the interactive path, same as the WebGPU tracer",
+    "rk45": "Dormand-Prince 5(4), rtol 1e-10 (atol = rtol * M on x, rtol * |p_t| on p), max 200000 attempts: the reference path"
+  },
+  "main_scene": {
+    "source": "web/src/settings.ts defaults",
+    "camera_radius_M": 26,
+    "camera_yaw_rad": 0,
+    "camera_pitch_rad": 0.1,
+    "fov_degrees": 45,
+    "max_steps": 300,
+    "step_fraction": 0.03,
+    "disk": true,
+    "sky": "stars",
+    "redshift": false,
+    "time_s": 0,
+    "params": "catalog defaults"
+  },
+  "main_runs": [
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 59.0694,
+      "trace_ms_min": 56.3528,
+      "trace_ms_max": 63.6416,
+      "mrays_per_s": 35.1,
+      "steps_mean": 90.3,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9854,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43556,
+        "captured": 0.05161,
+        "disk": 0.51241,
+        "unfinished": 0.00042
+      },
+      "nvrtc_compile_ms": 50.2027
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 58.8472,
+      "trace_ms_min": 55.9932,
+      "trace_ms_max": 60.6988,
+      "mrays_per_s": 35.24,
+      "steps_mean": 90.3,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9753,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43556,
+        "captured": 0.05161,
+        "disk": 0.51241,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 57.8273,
+      "trace_ms_min": 56.1447,
+      "trace_ms_max": 59.262,
+      "mrays_per_s": 35.86,
+      "steps_mean": 90.3,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9874,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43556,
+        "captured": 0.05161,
+        "disk": 0.51241,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 102.318,
+      "trace_ms_min": 100.6366,
+      "trace_ms_max": 104.2903,
+      "mrays_per_s": 36.03,
+      "steps_mean": 90.31,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9888,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43555,
+        "captured": 0.0516,
+        "disk": 0.51243,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 103.1404,
+      "trace_ms_min": 100.6394,
+      "trace_ms_max": 105.2938,
+      "mrays_per_s": 35.74,
+      "steps_mean": 90.31,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9812,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43555,
+        "captured": 0.0516,
+        "disk": 0.51243,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 102.9089,
+      "trace_ms_min": 101.3298,
+      "trace_ms_max": 104.9293,
+      "mrays_per_s": 35.82,
+      "steps_mean": 90.31,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9905,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43555,
+        "captured": 0.0516,
+        "disk": 0.51243,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 231.176,
+      "trace_ms_min": 229.4641,
+      "trace_ms_max": 232.9733,
+      "mrays_per_s": 35.88,
+      "steps_mean": 90.31,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9923,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43557,
+        "captured": 0.05161,
+        "disk": 0.5124,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 235.221,
+      "trace_ms_min": 233.2804,
+      "trace_ms_max": 237.8066,
+      "mrays_per_s": 35.26,
+      "steps_mean": 90.31,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9871,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43557,
+        "captured": 0.05161,
+        "disk": 0.5124,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 233.0194,
+      "trace_ms_min": 230.5321,
+      "trace_ms_max": 235.264,
+      "mrays_per_s": 35.6,
+      "steps_mean": 90.31,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9933,
+      "registers": 126,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.43557,
+        "captured": 0.05161,
+        "disk": 0.5124,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 2.4883,
+      "trace_ms_min": 1.9425,
+      "trace_ms_max": 3.8043,
+      "mrays_per_s": 833.33,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9923,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 1,
+      "fate": {
+        "escaped": 0.59496,
+        "captured": 0,
+        "disk": 0.40261,
+        "unfinished": 0.00243
+      },
+      "nvrtc_compile_ms": 23.6772
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 1.9752,
+      "trace_ms_min": 1.9476,
+      "trace_ms_max": 4.3049,
+      "mrays_per_s": 1049.83,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9882,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 1,
+      "fate": {
+        "escaped": 0.59496,
+        "captured": 0,
+        "disk": 0.40261,
+        "unfinished": 0.00243
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 1.9804,
+      "trace_ms_min": 1.9476,
+      "trace_ms_max": 4.4225,
+      "mrays_per_s": 1047.05,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9919,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 0.6667,
+      "fate": {
+        "escaped": 0.59496,
+        "captured": 0,
+        "disk": 0.40261,
+        "unfinished": 0.00243
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 4.316,
+      "trace_ms_min": 3.3976,
+      "trace_ms_max": 5.5958,
+      "mrays_per_s": 854.12,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9944,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 1,
+      "fate": {
+        "escaped": 0.59497,
+        "captured": 0,
+        "disk": 0.40259,
+        "unfinished": 0.00245
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 4.2833,
+      "trace_ms_min": 3.413,
+      "trace_ms_max": 5.8931,
+      "mrays_per_s": 860.65,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9912,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 1,
+      "fate": {
+        "escaped": 0.59497,
+        "captured": 0,
+        "disk": 0.40259,
+        "unfinished": 0.00245
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 4.18,
+      "trace_ms_min": 3.4171,
+      "trace_ms_max": 7.2266,
+      "mrays_per_s": 881.92,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9942,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 0.6667,
+      "fate": {
+        "escaped": 0.59497,
+        "captured": 0,
+        "disk": 0.40259,
+        "unfinished": 0.00245
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 9.769,
+      "trace_ms_min": 8.2299,
+      "trace_ms_max": 12.0207,
+      "mrays_per_s": 849.06,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9962,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 1,
+      "fate": {
+        "escaped": 0.59499,
+        "captured": 0,
+        "disk": 0.40256,
+        "unfinished": 0.00245
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 9.5631,
+      "trace_ms_min": 8.2381,
+      "trace_ms_max": 11.9327,
+      "mrays_per_s": 867.33,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.994,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 1,
+      "fate": {
+        "escaped": 0.59499,
+        "captured": 0,
+        "disk": 0.40256,
+        "unfinished": 0.00245
+      }
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 9.5158,
+      "trace_ms_min": 8.2122,
+      "trace_ms_max": 12.0166,
+      "mrays_per_s": 871.64,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.996,
+      "registers": 40,
+      "local_bytes": 0,
+      "occupancy": 0.6667,
+      "fate": {
+        "escaped": 0.59499,
+        "captured": 0,
+        "disk": 0.40256,
+        "unfinished": 0.00245
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 36.9777,
+      "trace_ms_min": 35.2706,
+      "trace_ms_max": 38.5188,
+      "mrays_per_s": 56.08,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9827,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.0576,
+        "disk": 0.48257,
+        "unfinished": 0.00042
+      },
+      "nvrtc_compile_ms": 30.3236
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 37.4733,
+      "trace_ms_min": 35.7009,
+      "trace_ms_max": 38.834,
+      "mrays_per_s": 55.34,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9694,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.0576,
+        "disk": 0.48257,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 37.202,
+      "trace_ms_min": 35.1662,
+      "trace_ms_max": 38.0979,
+      "mrays_per_s": 55.74,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9859,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.4167,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.0576,
+        "disk": 0.48257,
+        "unfinished": 0.00042
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 65.2759,
+      "trace_ms_min": 63.2412,
+      "trace_ms_max": 66.6501,
+      "mrays_per_s": 56.47,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9873,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.05762,
+        "disk": 0.48254,
+        "unfinished": 0.00043
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 66.1197,
+      "trace_ms_min": 64.481,
+      "trace_ms_max": 70.102,
+      "mrays_per_s": 55.75,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9779,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.05762,
+        "disk": 0.48254,
+        "unfinished": 0.00043
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 66.2188,
+      "trace_ms_min": 62.5276,
+      "trace_ms_max": 67.6964,
+      "mrays_per_s": 55.67,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9897,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.4167,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.05762,
+        "disk": 0.48254,
+        "unfinished": 0.00043
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 20,
+      "trace_ms_median": 145.5053,
+      "trace_ms_min": 144.0236,
+      "trace_ms_max": 148.1093,
+      "mrays_per_s": 57,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.991,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.45942,
+        "captured": 0.05762,
+        "disk": 0.48256,
+        "unfinished": 0.0004
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        32,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 146.4566,
+      "trace_ms_min": 144.5864,
+      "trace_ms_max": 148.9826,
+      "mrays_per_s": 56.63,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9843,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.45942,
+        "captured": 0.05762,
+        "disk": 0.48256,
+        "unfinished": 0.0004
+      }
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp32",
+      "integrator": "RK4",
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        8,
+        8
+      ],
+      "frames": 20,
+      "trace_ms_median": 144.9646,
+      "trace_ms_min": 142.7057,
+      "trace_ms_max": 148.447,
+      "mrays_per_s": 57.22,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9927,
+      "registers": 96,
+      "local_bytes": 0,
+      "occupancy": 0.4167,
+      "fate": {
+        "escaped": 0.45942,
+        "captured": 0.05762,
+        "disk": 0.48256,
+        "unfinished": 0.0004
+      }
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp64",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 3,
+      "trace_ms_median": 3663.2075,
+      "trace_ms_min": 3637.7158,
+      "trace_ms_max": 3886.3596,
+      "mrays_per_s": 0.57,
+      "steps_mean": 90.3,
+      "steps_p95": 160,
+      "lane_efficiency": 0.9854,
+      "registers": 255,
+      "local_bytes": 8,
+      "occupancy": 0.1667,
+      "fate": {
+        "escaped": 0.43556,
+        "captured": 0.05161,
+        "disk": 0.51242,
+        "unfinished": 0.00042
+      },
+      "nvrtc_compile_ms": 413.4467
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp64",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 3,
+      "trace_ms_median": 134.4194,
+      "trace_ms_min": 134.3386,
+      "trace_ms_max": 135.0697,
+      "mrays_per_s": 15.43,
+      "steps_mean": 93.91,
+      "steps_p95": 186,
+      "lane_efficiency": 0.9923,
+      "registers": 78,
+      "local_bytes": 0,
+      "occupancy": 0.5,
+      "fate": {
+        "escaped": 0.59496,
+        "captured": 0,
+        "disk": 0.40261,
+        "unfinished": 0.00243
+      },
+      "nvrtc_compile_ms": 308.7392
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp64",
+      "integrator": "RK4",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 3,
+      "trace_ms_median": 2271.0149,
+      "trace_ms_min": 2263.5017,
+      "trace_ms_max": 2565.2981,
+      "mrays_per_s": 0.91,
+      "steps_mean": 93.15,
+      "steps_p95": 165,
+      "lane_efficiency": 0.9827,
+      "registers": 196,
+      "local_bytes": 0,
+      "occupancy": 0.1667,
+      "fate": {
+        "escaped": 0.45941,
+        "captured": 0.0576,
+        "disk": 0.48257,
+        "unfinished": 0.00042
+      },
+      "nvrtc_compile_ms": 441.596
+    },
+    {
+      "metric": "kerr",
+      "precision": "fp64",
+      "integrator": "RK45 rtol 1e-10",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 3,
+      "trace_ms_median": 5147.9971,
+      "trace_ms_min": 5147.4966,
+      "trace_ms_max": 5149.8687,
+      "mrays_per_s": 0.4,
+      "steps_mean": 72.4,
+      "steps_p95": 136,
+      "lane_efficiency": 0.9739,
+      "registers": 255,
+      "local_bytes": 192,
+      "occupancy": 0.1667,
+      "fate": {
+        "escaped": 0.43597,
+        "captured": 0.05161,
+        "disk": 0.51242,
+        "unfinished": 0
+      },
+      "max_steps": 200000,
+      "nvrtc_compile_ms": 911.7035
+    },
+    {
+      "metric": "minkowski",
+      "precision": "fp64",
+      "integrator": "RK45 rtol 1e-10",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 3,
+      "trace_ms_median": 29.6858,
+      "trace_ms_min": 27.5098,
+      "trace_ms_max": 30.6319,
+      "mrays_per_s": 69.85,
+      "steps_mean": 3.65,
+      "steps_p95": 4,
+      "lane_efficiency": 0.9995,
+      "registers": 106,
+      "local_bytes": 0,
+      "occupancy": 0.3333,
+      "fate": {
+        "escaped": 0.59739,
+        "captured": 0,
+        "disk": 0.40261,
+        "unfinished": 0
+      },
+      "max_steps": 200000,
+      "nvrtc_compile_ms": 399.5487
+    },
+    {
+      "metric": "schwarzschild",
+      "precision": "fp64",
+      "integrator": "RK45 rtol 1e-10",
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frames": 3,
+      "trace_ms_median": 3299.4663,
+      "trace_ms_min": 3295.5,
+      "trace_ms_max": 3304.7285,
+      "mrays_per_s": 0.63,
+      "steps_mean": 75.03,
+      "steps_p95": 142,
+      "lane_efficiency": 0.9709,
+      "registers": 244,
+      "local_bytes": 0,
+      "occupancy": 0.1667,
+      "fate": {
+        "escaped": 0.45983,
+        "captured": 0.05761,
+        "disk": 0.48256,
+        "unfinished": 0
+      },
+      "max_steps": 200000,
+      "nvrtc_compile_ms": 673.4708
+    }
+  ],
+  "optimisations": {
+    "variants": {
+      "A": "Checkpoint-1 kernel: generic right-hand side (metric_eval + numeric inverse + full 4x4 contractions), no register cap, IEEE math",
+      "B": "A + fused generated right-hand side (symmetry; derivatives that are identically zero left out)",
+      "C": "B + --maxrregcount=128",
+      "D": "C + --use_fast_math (fp32 only): the shipped interactive kernel"
+    },
+    "measurements": [
+      {
+        "scene": "kerr-a060-i85-disk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "trace_ms_median_of_3_reps": {
+          "A": 98.208,
+          "B": 89.971,
+          "C": 76.579,
+          "D": 62.487
+        },
+        "per_rep_medians_of_20_frames": {
+          "A": [
+            98.208,
+            100.275,
+            94.963
+          ],
+          "B": [
+            89.971,
+            91.244,
+            86.488
+          ],
+          "C": [
+            76.579,
+            76.383,
+            87.002
+          ],
+          "D": [
+            62.414,
+            62.487,
+            62.754
+          ]
+        },
+        "speedup_D_over_A": 1.572
+      },
+      {
+        "scene": "kerr-a095-i45-nodisk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "trace_ms_median_of_3_reps": {
+          "A": 150.622,
+          "B": 134.924,
+          "C": 118.875,
+          "D": 96.283
+        },
+        "per_rep_medians_of_20_frames": {
+          "A": [
+            150.622,
+            153.438,
+            144.555
+          ],
+          "B": [
+            134.924,
+            137.174,
+            129.887
+          ],
+          "C": [
+            118.875,
+            117.679,
+            131.666
+          ],
+          "D": [
+            97.724,
+            92.564,
+            96.283
+          ]
+        },
+        "speedup_D_over_A": 1.564
+      },
+      {
+        "scene": "minkowski-i85-disk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "trace_ms_median_of_3_reps": {
+          "A": 6.084,
+          "B": 2.846,
+          "C": 2.854,
+          "D": 2.025
+        },
+        "per_rep_medians_of_20_frames": {
+          "A": [
+            6.213,
+            6.084,
+            5.711
+          ],
+          "B": [
+            2.846,
+            2.353,
+            2.867
+          ],
+          "C": [
+            2.854,
+            2.374,
+            3.035
+          ],
+          "D": [
+            2.001,
+            2.531,
+            2.025
+          ]
+        },
+        "speedup_D_over_A": 3.004
+      },
+      {
+        "scene": "schwarzschild-i85-disk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "trace_ms_median_of_3_reps": {
+          "A": 52.938,
+          "B": 42.406,
+          "C": 43.421,
+          "D": 39.08
+        },
+        "per_rep_medians_of_20_frames": {
+          "A": [
+            52.938,
+            53.547,
+            51.456
+          ],
+          "B": [
+            42.696,
+            42.406,
+            41.215
+          ],
+          "C": [
+            43.368,
+            43.421,
+            43.542
+          ],
+          "D": [
+            39.335,
+            37.119,
+            39.08
+          ]
+        },
+        "speedup_D_over_A": 1.355
+      }
+    ]
+  },
+  "cuda_vs_webgpu_same_gpu": {
+    "note": "Same scene files, same RTX 3070, 1920x1080, fp32 RK4 in both. WebGPU: headless Chrome, D3D12 backend, timestamp queries around the compute pass (Chrome rounds them to 0.1 ms).",
+    "scenes": [
+      {
+        "scene": "kerr-a060-i85-disk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "cuda_trace_ms": 62.487,
+        "cuda_checkpoint1_kernel_ms": 98.208,
+        "webgpu_trace_ms": 83.026,
+        "webgpu_range_ms": [
+          80.853,
+          85.004
+        ],
+        "cuda_speedup_over_webgpu": 1.329
+      },
+      {
+        "scene": "kerr-a095-i45-nodisk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "cuda_trace_ms": 96.283,
+        "cuda_checkpoint1_kernel_ms": 150.622,
+        "webgpu_trace_ms": 128.611,
+        "webgpu_range_ms": [
+          125.753,
+          131.436
+        ],
+        "cuda_speedup_over_webgpu": 1.336
+      },
+      {
+        "scene": "minkowski-i85-disk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "cuda_trace_ms": 2.025,
+        "cuda_checkpoint1_kernel_ms": 6.084,
+        "webgpu_trace_ms": 3.171,
+        "webgpu_range_ms": [
+          2.516,
+          4.941
+        ],
+        "cuda_speedup_over_webgpu": 1.566
+      },
+      {
+        "scene": "schwarzschild-i85-disk",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "cuda_trace_ms": 39.08,
+        "cuda_checkpoint1_kernel_ms": 52.938,
+        "webgpu_trace_ms": 49.693,
+        "webgpu_range_ms": [
+          48.213,
+          51.224
+        ],
+        "cuda_speedup_over_webgpu": 1.272
+      }
+    ]
+  },
+  "precision_and_integrator": [
+    {
+      "metric": "kerr",
+      "resolution": "1080p",
+      "fp32_rk4": {
+        "trace_ms": 59.069,
+        "steps_mean": 90.3,
+        "registers": 126
+      },
+      "fp64_rk4": {
+        "trace_ms": 3663.208,
+        "steps_mean": 90.3,
+        "registers": 255
+      },
+      "fp64_rk45_rtol_1e10": {
+        "trace_ms": 5147.997,
+        "steps_mean": 72.4,
+        "steps_p95": 136,
+        "registers": 255
+      },
+      "fp64_over_fp32_time": 62.015
+    },
+    {
+      "metric": "schwarzschild",
+      "resolution": "1080p",
+      "fp32_rk4": {
+        "trace_ms": 36.978,
+        "steps_mean": 93.15,
+        "registers": 96
+      },
+      "fp64_rk4": {
+        "trace_ms": 2271.015,
+        "steps_mean": 93.15,
+        "registers": 196
+      },
+      "fp64_rk45_rtol_1e10": {
+        "trace_ms": 3299.466,
+        "steps_mean": 75.03,
+        "steps_p95": 142,
+        "registers": 244
+      },
+      "fp64_over_fp32_time": 61.416
+    },
+    {
+      "metric": "minkowski",
+      "resolution": "1080p",
+      "fp32_rk4": {
+        "trace_ms": 2.488,
+        "steps_mean": 93.91,
+        "registers": 40
+      },
+      "fp64_rk4": {
+        "trace_ms": 134.419,
+        "steps_mean": 93.91,
+        "registers": 78
+      },
+      "fp64_rk45_rtol_1e10": {
+        "trace_ms": 29.686,
+        "steps_mean": 3.65,
+        "steps_p95": 4,
+        "registers": 106
+      },
+      "fp64_over_fp32_time": 54.021
+    }
+  ],
+  "profiling": {
+    "nsight_compute": {
+      "tool": "Nsight Compute 2026.2.1, --set full, 47 replay passes (run from an administrator terminal: GPU counters are restricted to administrators on this machine)",
+      "kernel": "trace_kernel, fp32 RK4, Kerr a = 0.6, scenes/kerr-a060-i85-disk.json at 1920x1080, block 16x16 (the shipped interactive kernel: fused RHS, --maxrregcount=128, --use_fast_math)",
+      "report_file": "validation/out/ncu-kerr-fp32.ncu-rep (not committed)",
+      "duration_ms_under_profiler": 59.16,
+      "sm_clock_ghz_under_profiler": 1.659,
+      "note_on_clock": "ncu locks clocks to base for repeatable counters; the benchmark runs above use boost clocks",
+      "compute_sm_throughput_pct_of_peak": 82.88,
+      "memory_throughput_pct_of_peak": 2.62,
+      "bound": "compute: the FMA pipe is busy 81.8% of active cycles; memory is idle (DRAM 2.6%, no local-memory spills)",
+      "pipe_utilization_pct_of_active": {
+        "fma": 81.83,
+        "fma_heavy": 80.47,
+        "fma_lite": 83.19,
+        "xu_special_functions": 11.88,
+        "alu": 1.92
+      },
+      "issued_ipc_active": 3.39,
+      "registers_per_thread": 126,
+      "occupancy": {
+        "theoretical_pct": 33.33,
+        "achieved_pct": 31.05,
+        "limiter": "registers (2 blocks of 256 threads per SM)"
+      },
+      "fp32_ops_per_cycle_whole_gpu": {
+        "fadd": 86.781274,
+        "fmul": 2955.099149,
+        "ffma": 1606.789281
+      },
+      "achieved_fp32_flops": {
+        "flop_per_cycle": 6255.5,
+        "tflops": 10.38,
+        "pct_of_peak": 53.1,
+        "peak_tflops_at_this_clock": 19.54,
+        "counting": "FADD and FMUL count 1 FLOP, FFMA 2; peak = 46 SMs x 128 FFMA/cycle x 2"
+      },
+      "divergence": {
+        "avg_active_threads_per_warp": 31.54,
+        "avg_not_predicated_off_threads_per_warp": 31.48,
+        "branch_efficiency_pct": 99.73,
+        "avg_divergent_branches": 576.56
+      },
+      "warp_stalls_cycles_per_issued_instruction": {
+        "not_selected": 2.605,
+        "selected": 1,
+        "dispatch_stall": 0.614,
+        "no_instruction": 0.064,
+        "wait": 0.056,
+        "short_scoreboard": 0.032,
+        "long_scoreboard": 0
+      },
+      "reading": "The kernel is arithmetic-bound and keeps the FMA pipe ~82% busy; warps mostly wait for an issue slot (not_selected), not for memory. Achieved FLOP/s is 53% of peak because FMULs outnumber FFMAs nearly 2:1 and an FMUL takes a full FMA slot for one FLOP: the generated code has many unfused products. Divergence is negligible (31.5 of 32 lanes active), confirming the step-count lane-efficiency estimate."
+    },
+    "registers_and_theoretical_occupancy": [
+      {
+        "metric": "kerr",
+        "precision": "fp32",
+        "integrator": "RK4",
+        "registers": 126,
+        "local_bytes": 0,
+        "occupancy": 0.3333
+      },
+      {
+        "metric": "minkowski",
+        "precision": "fp32",
+        "integrator": "RK4",
+        "registers": 40,
+        "local_bytes": 0,
+        "occupancy": 1
+      },
+      {
+        "metric": "schwarzschild",
+        "precision": "fp32",
+        "integrator": "RK4",
+        "registers": 96,
+        "local_bytes": 0,
+        "occupancy": 0.3333
+      },
+      {
+        "metric": "kerr",
+        "precision": "fp64",
+        "integrator": "RK4",
+        "registers": 255,
+        "local_bytes": 8,
+        "occupancy": 0.1667
+      },
+      {
+        "metric": "minkowski",
+        "precision": "fp64",
+        "integrator": "RK4",
+        "registers": 78,
+        "local_bytes": 0,
+        "occupancy": 0.5
+      },
+      {
+        "metric": "schwarzschild",
+        "precision": "fp64",
+        "integrator": "RK4",
+        "registers": 196,
+        "local_bytes": 0,
+        "occupancy": 0.1667
+      },
+      {
+        "metric": "kerr",
+        "precision": "fp64",
+        "integrator": "RK45 rtol 1e-10",
+        "registers": 255,
+        "local_bytes": 192,
+        "occupancy": 0.1667
+      },
+      {
+        "metric": "minkowski",
+        "precision": "fp64",
+        "integrator": "RK45 rtol 1e-10",
+        "registers": 106,
+        "local_bytes": 0,
+        "occupancy": 0.3333
+      },
+      {
+        "metric": "schwarzschild",
+        "precision": "fp64",
+        "integrator": "RK45 rtol 1e-10",
+        "registers": 244,
+        "local_bytes": 0,
+        "occupancy": 0.1667
+      }
+    ],
+    "divergence": "lane_efficiency (useful steps / 32 x longest ray per warp, from per-pixel step counts) is 0.97-0.99 in every run: neighbouring rays take nearly the same number of steps, so rays finishing at different times idle under 3% of lanes. Persistent threads or ray compaction would recover at most that and were not built. Nsight Compute agrees: 31.54 active threads per warp on average and 99.7% branch efficiency."
+  },
+  "accuracy_references": {
+    "note": "Accuracy of each integrator is measured in validation/results/ (fp64 suite): constraint-drift.json (RK4 vs RK45 over a full frame), convergence.json (RK4 order, RK45 vs tolerance), deflection.json (interactive RK4 error vs the exact integral)."
+  }
+}

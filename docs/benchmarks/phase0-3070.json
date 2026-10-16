@@ -1,0 +1,166 @@
+{
+  "description": "Phase 0 baseline: isotropic Schwarzschild CUDA kernel (native/src/raymarch.cu), run via `raymarcher.exe --benchmark`. Three repetitions of the built-in suite; each run times 30 frames with CUDA events. Numbers are kernel time only, no display or copy.",
+  "date": "2026-10-15",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "compute_capability": "8.6",
+    "vram_mb": 8192,
+    "vbios": "94.04.46.40.64",
+    "max_sm_clock_mhz": 2100,
+    "power_limit_w": 270,
+    "pcie_gen": 4
+  },
+  "software": {
+    "os": "Windows 11 Home 10.0.26200",
+    "driver": "617.42",
+    "cuda": "13.3 (V13.3.73)",
+    "host_compiler": "MSVC 14.51 (Visual Studio 18 2026)",
+    "build": "Release, -O3 --use_fast_math, sm_75/80/86/89"
+  },
+  "scene": {
+    "metric": "Schwarzschild, isotropic coordinates",
+    "mass": 1.8,
+    "max_steps": 150,
+    "camera_radius": 22,
+    "camera_pitch_rad": 0.12,
+    "camera_yaw_rad": 0,
+    "fov_scale": 0.577,
+    "disk": "on (artistic volumetric model), thickness 0.08, density 1.0, temp 6500 K",
+    "stars": "on",
+    "bloom_intensity": 1
+  },
+  "repetitions": 3,
+  "frames_per_run": 30,
+  "runs": [
+    {
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        16,
+        16
+      ],
+      "frame_ms_median": 6.606,
+      "frame_ms_min": 6.538,
+      "frame_ms_max": 7.045,
+      "mrays_per_s_median": 313.9,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        32,
+        8
+      ],
+      "frame_ms_median": 6.885,
+      "frame_ms_min": 6.799,
+      "frame_ms_max": 6.913,
+      "mrays_per_s_median": 301.2,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "block": [
+        8,
+        8
+      ],
+      "frame_ms_median": 6.586,
+      "frame_ms_min": 6.5,
+      "frame_ms_max": 6.663,
+      "mrays_per_s_median": 314.8,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        16,
+        16
+      ],
+      "frame_ms_median": 11.769,
+      "frame_ms_min": 11.582,
+      "frame_ms_max": 11.789,
+      "mrays_per_s_median": 313.2,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        32,
+        8
+      ],
+      "frame_ms_median": 11.889,
+      "frame_ms_min": 11.784,
+      "frame_ms_max": 12.133,
+      "mrays_per_s_median": 310.1,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "1440p",
+      "width": 2560,
+      "height": 1440,
+      "block": [
+        8,
+        8
+      ],
+      "frame_ms_median": 11.914,
+      "frame_ms_min": 11.582,
+      "frame_ms_max": 12.61,
+      "mrays_per_s_median": 309.4,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        16,
+        16
+      ],
+      "frame_ms_median": 26.404,
+      "frame_ms_min": 26.069,
+      "frame_ms_max": 28.376,
+      "mrays_per_s_median": 314.1,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        32,
+        8
+      ],
+      "frame_ms_median": 26.703,
+      "frame_ms_min": 26.25,
+      "frame_ms_max": 27.81,
+      "mrays_per_s_median": 310.6,
+      "steps_per_ray": 62.79
+    },
+    {
+      "resolution": "4K",
+      "width": 3840,
+      "height": 2160,
+      "block": [
+        8,
+        8
+      ],
+      "frame_ms_median": 26.456,
+      "frame_ms_min": 25.861,
+      "frame_ms_max": 26.766,
+      "mrays_per_s_median": 313.5,
+      "steps_per_ray": 62.79
+    }
+  ],
+  "notes": [
+    "The disk, star field and bloom are artistic, not physical models.",
+    "Display ran on the same GPU during the benchmark; other desktop apps were open."
+  ]
+}

@@ -8,6 +8,6 @@ export default defineConfig({
   },
   test: {
     root: '.',
-    include: ['web/src/**/*.test.ts', 'compiler/test/**/*.test.ts'],
+    include: ['web/src/**/*.test.ts', 'compiler/test/**/*.test.ts', 'validation/**/*.test.ts'],
   },
 });
