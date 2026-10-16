@@ -1,0 +1,33 @@
+/* Atlas tokens shared by every page (see DESIGN.md). */
+
+:root {
+  --ink: #0a0f1c;
+  --plate: #dbe3ec;
+  --plate-dim: #93a1b6;
+  --rule: #34465f;
+  --scale: #5b7090;
+  --red: #e4503f;
+  --red-ink: #ff7a68;
+  /* Second data series (charts only), validated against --ink with --red. */
+  --blue: #4f8ad0;
+
+  --label: 'Sofia Sans Condensed', 'Arial Narrow', sans-serif;
+  --name: 'Spectral', Georgia, serif;
+
+  --margin-top: 34px;
+  --margin-left: 34px;
+  --margin-right: 14px;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+::selection { background: color-mix(in srgb, var(--red) 45%, transparent); color: #fff; }
+
+:focus-visible {
+  outline: 1px solid var(--red-ink);
+  outline-offset: 2px;
+}

@@ -61,6 +61,8 @@ For Schwarzschild the traced edge agrees with the analytic √27 M prediction to
 
 ## Verification
 
+The site's verification page (`web/validation.html`, linked from the playground's imprint) lays out every result below with charts, read directly from the committed result files.
+
 | Check | Expected | Where |
 | --- | --- | --- |
 | Symbolic derivatives | Match finite differences for every catalog metric | `compiler/test/compiler.test.ts` |

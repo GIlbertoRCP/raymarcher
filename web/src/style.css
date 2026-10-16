@@ -1,29 +1,6 @@
 /* Raymarcher: a field star atlas plate. */
 
-:root {
-  --ink: #0a0f1c;
-  --ink-raised: #0d1424;
-  --plate: #dbe3ec;
-  --plate-dim: #93a1b6;
-  --rule: #34465f;
-  --scale: #5b7090;
-  --red: #e4503f;
-  --red-ink: #ff7a68;
-
-  --label: 'Sofia Sans Condensed', 'Arial Narrow', sans-serif;
-  --name: 'Spectral', Georgia, serif;
-
-  --margin-top: 34px;
-  --margin-left: 34px;
-  --margin-right: 14px;
-  --gap: 10px;
-
-  color-scheme: dark;
-}
-
-* { box-sizing: border-box; }
-
-[hidden] { display: none !important; }
+@import './tokens.css';
 
 html, body {
   margin: 0;
@@ -33,13 +10,6 @@ html, body {
   font: 500 14px/1.35 var(--label);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
-}
-
-::selection { background: color-mix(in srgb, var(--red) 45%, transparent); color: #fff; }
-
-:focus-visible {
-  outline: 1px solid var(--red-ink);
-  outline-offset: 2px;
 }
 
 /* --- Plate layout -------------------------------------------------------- */
@@ -83,6 +53,8 @@ html, body {
 }
 .imprint strong { color: var(--plate); font-weight: 700; margin-right: 6px; }
 .imprint b { color: var(--plate); font-weight: 700; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--rule); }
+.imprint-link { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--rule); color: var(--plate); text-decoration: none; }
+.imprint-link:hover { color: var(--red-ink); }
 
 /* The chart field: a double neatline around the render. */
 .field {

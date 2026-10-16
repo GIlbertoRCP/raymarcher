@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verification · Raymarcher</title>
+  <meta name="description" content="How Raymarcher's black hole images are checked: measurements against published results and agreement between two independent GPU backends.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Condensed:wght@400;500;600;700&family=Spectral:ital,wght@0,400;1,400;1,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/validation/validation.css">
+</head>
+<body>
+  <header class="masthead">
+    <p class="imprint"><a href="./"><strong>Raymarcher</strong></a> <span>Field atlas of curved spacetime</span></p>
+    <nav aria-label="Atlas">
+      <a href="./">Plates</a>
+      <a href="./validation.html" aria-current="page">Verification</a>
+    </nav>
+  </header>
+
+  <main class="document">
+    <section class="opening">
+      <h1>Verification</h1>
+      <p class="lead">Every image in this atlas is computed from a spacetime's metric, one light ray per pixel. This page shows the checks that say it is computed correctly: measurements against results published in the physics literature, and a second, independent renderer that has to produce the same picture.</p>
+      <p class="lead-note" id="verdict"></p>
+    </section>
+
+    <section aria-labelledby="ledger-h">
+      <h2 id="ledger-h">The ledger</h2>
+      <p>Each line is one measurement, the tolerance it had to meet, and the result. The reference integrator runs in double precision on an NVIDIA RTX 3070; the interactive integrator is the one the plates use.</p>
+      <div class="table-wrap"><table class="ledger" id="ledger"></table></div>
+    </section>
+
+    <section aria-labelledby="agree-h">
+      <h2 id="agree-h">Two backends, one image</h2>
+      <p>The same compiled metric drives two tracers that share no code: WebGPU in your browser and CUDA on the desktop. Rendered from the same scene files, every pixel is sorted into what the light did: it fell into the hole, landed on the disk, or escaped to the sky. Away from the edges between those regions, where one pixel can straddle both, the two must agree on at least 99.5% of pixels.</p>
+      <p class="stat" id="agree-stat"></p>
+      <div class="tile-controls" role="radiogroup" aria-label="Tile view">
+        <label class="choice"><input type="radio" name="tile-view" value="fate" checked><span>Fate map</span></label>
+        <label class="choice"><input type="radio" name="tile-view" value="diff"><span>Image difference</span></label>
+      </div>
+      <p class="note" id="tile-key">Fate map: <i class="key-chip escaped"></i> escaped to the sky · <i class="key-chip disk"></i> landed on the disk · <i class="key-chip captured"></i> fell in. Each tile is the CUDA render; the score is its agreement with WebGPU.</p>
+      <ol class="tiles" id="tiles" data-view="fate"></ol>
+      <p class="note" id="precision-note"></p>
+    </section>
+
+    <section aria-labelledby="bend-h">
+      <h2 id="bend-h">Bending of light</h2>
+      <p>A ray passing a Schwarzschild black hole at impact parameter <var>b</var> is bent by an angle that has an exact answer as an integral. Far away it approaches Einstein's 4<var>M</var>/<var>b</var>; close in, near <var>b</var> = √27 <var>M</var> ≈ 5.196 <var>M</var>, the ray winds around the hole and the angle grows without bound.</p>
+      <figure>
+        <div id="chart-deflection"></div>
+        <figcaption>Deflection angle against impact parameter. The weak-field series fails exactly where the pictures get interesting.</figcaption>
+      </figure>
+      <figure>
+        <div id="chart-deflection-error"></div>
+        <figcaption>How far each integrator's traced angle is from the exact integral, for the same rays.</figcaption>
+      </figure>
+    </section>
+
+    <section aria-labelledby="shadow-h">
+      <h2 id="shadow-h">The size of the shadow</h2>
+      <p>A camera hovering at radius <var>r</var> sees a dark disk of angular radius α, with sin α = √27 <var>M</var> √(1 − 2<var>M</var>/<var>r</var>) / <var>r</var>. The tracer finds the edge by bisecting on whether rays fall in.</p>
+      <figure>
+        <div id="chart-shadow"></div>
+        <figcaption id="shadow-caption"></figcaption>
+      </figure>
+    </section>
+
+    <section aria-labelledby="kerr-h">
+      <h2 id="kerr-h">A spinning hole's shadow</h2>
+      <p>Spin flattens one side of the shadow and shifts it sideways: light orbiting with the spin can pass closer. James Bardeen worked out the outline in 1973. The tracer launches parallel rays from a million <var>M</var> away and bisects for the edge along each of Bardeen's points.</p>
+      <div class="split">
+        <figure>
+          <div id="kerr-outlines" class="outlines"></div>
+          <figcaption>Bardeen's outline seen edge-on, for four spins. The traced edges sit on these curves to within the deviations in the table.</figcaption>
+        </figure>
+        <div class="table-wrap"><table class="grid-table" id="kerr-table"></table></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="orbit-h">
+      <h2 id="orbit-h">Orbits</h2>
+      <p>Two radii shape every black hole image: the photon orbit, where light can circle the hole, and the innermost stable circular orbit (ISCO), where the disk ends. Both have exact formulas for Kerr. Photon orbits are found by tracing light; the ISCO from the metric's own derivatives, evaluated on the GPU.</p>
+      <div class="table-wrap"><table class="grid-table" id="orbit-table"></table></div>
+    </section>
+
+    <section aria-labelledby="int-h">
+      <h2 id="int-h">How the integrator behaves</h2>
+      <p>The plates use fixed-step fourth-order Runge–Kutta (RK4): halve the step and the error should drop sixteen-fold. The reference integrator, Dormand–Prince RK45, picks its own steps to meet a requested tolerance.</p>
+      <div class="split">
+        <figure>
+          <div id="chart-rk4"></div>
+          <figcaption id="rk4-caption"></figcaption>
+        </figure>
+        <figure>
+          <div id="chart-rk45"></div>
+          <figcaption>RK45 error against the tolerance it was asked for. Points on or under the line met it.</figcaption>
+        </figure>
+      </div>
+      <h3>Keeping light on the light cone</h3>
+      <p>For light, <var>H</var> = ½ <var>g</var><sup>μν</sup> <var>p</var><sub>μ</sub> <var>p</var><sub>ν</sub> is exactly zero. Numerical error lets it drift, so its size along each ray is a free accuracy check on every pixel of a frame.</p>
+      <figure>
+        <div id="chart-drift"></div>
+        <figcaption id="drift-caption"></figcaption>
+      </figure>
+    </section>
+
+    <section aria-labelledby="speed-h">
+      <h2 id="speed-h">Speed</h2>
+      <p>Each pixel integrates a whole geodesic, so a 1080p frame is about two million small physics simulations. Timings are for the trace only, on one RTX 3070, with identical scenes in both backends.</p>
+      <figure>
+        <div id="chart-backends"></div>
+        <figcaption id="backends-caption"></figcaption>
+      </figure>
+      <div class="table-wrap"><table class="grid-table" id="precision-table"></table></div>
+    </section>
+  </main>
+
+  <footer class="colophon">
+    <h2>Provenance</h2>
+    <dl id="provenance"></dl>
+    <p class="note" id="provenance-note"></p>
+  </footer>
+
+  <script type="module" src="/src/validation/main.ts"></script>
+</body>
+</html>
