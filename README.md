@@ -104,7 +104,7 @@ The interactive integrator (RK4, step 0.03 r) is less accurate by design: its sw
 
 ### CUDA and WebGPU agree
 
-The two renderers trace the same 27 scenes (`scenes/`: Schwarzschild, Kerr at a = 0.6 and 0.95, and Reissner–Nordström at Q = 0.8 M, at three inclinations with the disk on and off, plus flat space). Every ray ends the same way in both: captured, escaped or on the disk. Across 14 million pixels no fate differs (`validation/results/cross-backend.json`; the gate is 99.5%). The fp32 and fp64 CUDA renders agree just as exactly. Rounding moves a fate boundary by far less than a pixel; the integrator's own error, which both backends share, is what the fp64 checks above measure.
+The two renderers trace the same 27 scenes (`scenes/`: Schwarzschild, Kerr at a = 0.6 and 0.95, and Reissner–Nordström at Q = 0.8 M, at three inclinations with the disk on and off, plus flat space). Every ray ends the same way in both: captured, escaped or on the disk. Across 14 million pixels no fate differs (`validation/results/cross-backend.json`; the gate is 99.5%). The fp32 (fast-math) and fp64 CUDA renders differ on 2 of those pixels, both rays that use up the 300-step budget in fp32 and reach the disk in fp64 (`validation/results/fp32-vs-fp64.json`). Rounding moves a fate boundary by far less than a pixel; the integrator's own error, which both backends share, is what the fp64 checks above measure.
 
 ## Running it
 

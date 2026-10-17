@@ -3,16 +3,16 @@
   "gate": "fate agreement >= 99.5% on every scene, excluding pixels within 1 px of a fate boundary (3x3 neighbourhood, either map)",
   "pass": true,
   "worst_interior_agreement": 1,
-  "scenes_compared": 21,
+  "scenes_compared": 27,
   "scenes_missing": 0,
   "sets": {
     "a": "cuda",
     "b": "cuda-fp64"
   },
-  "date": "2026-10-15T22:52:57.963Z",
+  "date": "2026-10-16T07:43:54.710Z",
   "git": {
-    "commit": "9788634",
-    "uncommitted_changes": true
+    "commit": "36e19b4",
+    "uncommitted_changes": false
   },
   "a": {
     "backend": "cuda-nvrtc",
@@ -82,12 +82,12 @@
         "edge_pixels": 1358
       },
       "image_difference": {
-        "meanAbsLevels": 0.0000720164609053498,
-        "pctOver8": 0.00019290123456790122,
+        "meanAbsLevels": 0.0062622170781893,
+        "pctOver8": 0.010223765432098766,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 19.8554,
-      "cuda_constraint_drift_p99": 0.0001661
+      "cuda_trace_ms": 14.2694,
+      "cuda_constraint_drift_p99": 6.22e-7
     },
     {
       "scene": "kerr-a060-i17-nodisk",
@@ -139,12 +139,12 @@
         "edge_pixels": 1408
       },
       "image_difference": {
-        "meanAbsLevels": 0.000261059670781893,
+        "meanAbsLevels": 0.00028292181069958846,
         "pctOver8": 0.00038580246913580245,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 39.3503,
-      "cuda_constraint_drift_p99": 9.786e-7
+      "cuda_trace_ms": 23.6316,
+      "cuda_constraint_drift_p99": 0.000001242
     },
     {
       "scene": "kerr-a060-i45-disk",
@@ -196,12 +196,12 @@
         "edge_pixels": 1270
       },
       "image_difference": {
-        "meanAbsLevels": 0.0002385545267489712,
-        "pctOver8": 0.00019290123456790122,
+        "meanAbsLevels": 0.005592206790123457,
+        "pctOver8": 0.007716049382716049,
         "pctOver32": 0.00019290123456790122
       },
-      "cuda_trace_ms": 18.772,
-      "cuda_constraint_drift_p99": 0.0001862
+      "cuda_trace_ms": 11.7862,
+      "cuda_constraint_drift_p99": 6.814e-7
     },
     {
       "scene": "kerr-a060-i45-nodisk",
@@ -253,12 +253,12 @@
         "edge_pixels": 1416
       },
       "image_difference": {
-        "meanAbsLevels": 0.0002867798353909465,
-        "pctOver8": 0.00019290123456790122,
+        "meanAbsLevels": 0.00033114711934156376,
+        "pctOver8": 0.00038580246913580245,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 38.4574,
-      "cuda_constraint_drift_p99": 8.432e-7
+      "cuda_trace_ms": 23.4617,
+      "cuda_constraint_drift_p99": 0.000001162
     },
     {
       "scene": "kerr-a060-i85-disk",
@@ -310,12 +310,12 @@
         "edge_pixels": 1184
       },
       "image_difference": {
-        "meanAbsLevels": 0.00005851337448559671,
-        "pctOver8": 0,
+        "meanAbsLevels": 0.0019245113168724279,
+        "pctOver8": 0.00019290123456790122,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 26.0994,
-      "cuda_constraint_drift_p99": 0.0002884
+      "cuda_trace_ms": 17.3998,
+      "cuda_constraint_drift_p99": 0.000001074
     },
     {
       "scene": "kerr-a060-i85-nodisk",
@@ -367,12 +367,12 @@
         "edge_pixels": 1424
       },
       "image_difference": {
-        "meanAbsLevels": 0.0002565586419753086,
+        "meanAbsLevels": 0.0003452932098765432,
         "pctOver8": 0.00038580246913580245,
-        "pctOver32": 0
+        "pctOver32": 0.00019290123456790122
       },
-      "cuda_trace_ms": 38.8055,
-      "cuda_constraint_drift_p99": 0.00000103
+      "cuda_trace_ms": 26.0332,
+      "cuda_constraint_drift_p99": 0.000001281
     },
     {
       "scene": "kerr-a095-i17-disk",
@@ -424,12 +424,12 @@
         "edge_pixels": 844
       },
       "image_difference": {
-        "meanAbsLevels": 0.00001800411522633745,
-        "pctOver8": 0,
+        "meanAbsLevels": 0.003764789094650206,
+        "pctOver8": 0.004822530864197531,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 18.5958,
-      "cuda_constraint_drift_p99": 0.0006843
+      "cuda_trace_ms": 11.3582,
+      "cuda_constraint_drift_p99": 6.945e-7
     },
     {
       "scene": "kerr-a095-i17-nodisk",
@@ -481,12 +481,12 @@
         "edge_pixels": 1350
       },
       "image_difference": {
-        "meanAbsLevels": 0.0004102366255144033,
-        "pctOver8": 0.0005787037037037037,
-        "pctOver32": 0.00019290123456790122
+        "meanAbsLevels": 0.0005066872427983539,
+        "pctOver8": 0.0007716049382716049,
+        "pctOver32": 0.00038580246913580245
       },
-      "cuda_trace_ms": 40.4366,
-      "cuda_constraint_drift_p99": 0.000001004
+      "cuda_trace_ms": 25.5997,
+      "cuda_constraint_drift_p99": 0.000001318
     },
     {
       "scene": "kerr-a095-i45-disk",
@@ -538,12 +538,12 @@
         "edge_pixels": 846
       },
       "image_difference": {
-        "meanAbsLevels": 0.00002507716049382716,
-        "pctOver8": 0,
+        "meanAbsLevels": 0.0034651491769547324,
+        "pctOver8": 0.003279320987654321,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 18.0152,
-      "cuda_constraint_drift_p99": 0.0005397
+      "cuda_trace_ms": 11.006,
+      "cuda_constraint_drift_p99": 8.449e-7
     },
     {
       "scene": "kerr-a095-i45-nodisk",
@@ -595,12 +595,12 @@
         "edge_pixels": 1370
       },
       "image_difference": {
-        "meanAbsLevels": 0.0008114711934156379,
-        "pctOver8": 0.0009645061728395061,
-        "pctOver32": 0.00038580246913580245
+        "meanAbsLevels": 0.0004378858024691358,
+        "pctOver8": 0.0005787037037037037,
+        "pctOver32": 0.00019290123456790122
       },
-      "cuda_trace_ms": 41.1996,
-      "cuda_constraint_drift_p99": 9.299e-7
+      "cuda_trace_ms": 23.134,
+      "cuda_constraint_drift_p99": 0.0000013
     },
     {
       "scene": "kerr-a095-i85-disk",
@@ -652,12 +652,12 @@
         "edge_pixels": 956
       },
       "image_difference": {
-        "meanAbsLevels": 0.00005336934156378601,
+        "meanAbsLevels": 0.0016833847736625513,
         "pctOver8": 0,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 25.7512,
-      "cuda_constraint_drift_p99": 0.0006306
+      "cuda_trace_ms": 15.3876,
+      "cuda_constraint_drift_p99": 0.000001344
     },
     {
       "scene": "kerr-a095-i85-nodisk",
@@ -709,12 +709,12 @@
         "edge_pixels": 1400
       },
       "image_difference": {
-        "meanAbsLevels": 0.00043338477366255143,
-        "pctOver8": 0.00038580246913580245,
-        "pctOver32": 0.00038580246913580245
+        "meanAbsLevels": 0.00029899691358024693,
+        "pctOver8": 0.00019290123456790122,
+        "pctOver32": 0
       },
-      "cuda_trace_ms": 40.6579,
-      "cuda_constraint_drift_p99": 0.000001127
+      "cuda_trace_ms": 24.282,
+      "cuda_constraint_drift_p99": 0.000001445
     },
     {
       "scene": "minkowski-i17-disk",
@@ -761,12 +761,12 @@
       },
       "shadow_edge_offset_px": null,
       "image_difference": {
-        "meanAbsLevels": 0.000023791152263374485,
+        "meanAbsLevels": 0.00431712962962963,
         "pctOver8": 0,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 1.068,
-      "cuda_constraint_drift_p99": 1.122e-7
+      "cuda_trace_ms": 0.4577,
+      "cuda_constraint_drift_p99": 1.418e-7
     },
     {
       "scene": "minkowski-i45-disk",
@@ -813,12 +813,12 @@
       },
       "shadow_edge_offset_px": null,
       "image_difference": {
-        "meanAbsLevels": 0.000027006172839506174,
+        "meanAbsLevels": 0.0037223508230452675,
         "pctOver8": 0,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 1.1038,
-      "cuda_constraint_drift_p99": 1.104e-7
+      "cuda_trace_ms": 0.4636,
+      "cuda_constraint_drift_p99": 1.199e-7
     },
     {
       "scene": "minkowski-i85-disk",
@@ -865,12 +865,354 @@
       },
       "shadow_edge_offset_px": null,
       "image_difference": {
-        "meanAbsLevels": 0.00001800411522633745,
+        "meanAbsLevels": 0.0009503600823045267,
         "pctOver8": 0,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 1.2298,
-      "cuda_constraint_drift_p99": 1.095e-7
+      "cuda_trace_ms": 0.5233,
+      "cuda_constraint_drift_p99": 1.186e-7
+    },
+    {
+      "scene": "rn-q080-i17-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 509208,
+      "boundary_pixels": 9192,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            22702,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            38804,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            456422,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            472
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1256
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.004776234567901235,
+        "pctOver8": 0.00038580246913580245,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 11.8721,
+      "cuda_constraint_drift_p99": 0.000001089
+    },
+    {
+      "scene": "rn-q080-i17-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515792,
+      "boundary_pixels": 2608,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            478772,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            38804,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            824
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1256
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.00027520576131687244,
+        "pctOver8": 0.00038580246913580245,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 21.3586,
+      "cuda_constraint_drift_p99": 0.000001188
+    },
+    {
+      "scene": "rn-q080-i45-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 510480,
+      "boundary_pixels": 7920,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            43200,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            37966,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            436774,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            460
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1256
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.004172453703703703,
+        "pctOver8": 0.00019290123456790122,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 11.0909,
+      "cuda_constraint_drift_p99": 9.417e-7
+    },
+    {
+      "scene": "rn-q080-i45-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515792,
+      "boundary_pixels": 2608,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            478772,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            38804,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            824
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1256
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.00029899691358024693,
+        "pctOver8": 0.00038580246913580245,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 20.5343,
+      "cuda_constraint_drift_p99": 0.0000011
+    },
+    {
+      "scene": "rn-q080-i85-disk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 509234,
+      "boundary_pixels": 9166,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            263708,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            21896,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            232414,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            382
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1100
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.0013715277777777777,
+        "pctOver8": 0.00019290123456790122,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 13.783,
+      "cuda_constraint_drift_p99": 0.000001074
+    },
+    {
+      "scene": "rn-q080-i85-nodisk",
+      "width": 960,
+      "height": 540,
+      "pass": true,
+      "fate_agreement_interior": 1,
+      "fate_agreement_all": 1,
+      "interior_pixels": 515792,
+      "boundary_pixels": 2608,
+      "confusion_cuda_rows_webgpu_columns": {
+        "order": [
+          "escaped",
+          "captured",
+          "disk",
+          "unfinished"
+        ],
+        "counts": [
+          [
+            478772,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            38804,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            824
+          ]
+        ]
+      },
+      "shadow_edge_offset_px": {
+        "mean": 0,
+        "p99": 0,
+        "max": 0,
+        "edge_pixels": 1256
+      },
+      "image_difference": {
+        "meanAbsLevels": 0.00023791152263374487,
+        "pctOver8": 0.00019290123456790122,
+        "pctOver32": 0
+      },
+      "cuda_trace_ms": 20.6203,
+      "cuda_constraint_drift_p99": 0.000001229
     },
     {
       "scene": "schwarzschild-i17-disk",
@@ -922,12 +1264,12 @@
         "edge_pixels": 1440
       },
       "image_difference": {
-        "meanAbsLevels": 0.00018840020576131686,
+        "meanAbsLevels": 0.004454732510288066,
         "pctOver8": 0.00019290123456790122,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 13.1881,
-      "cuda_constraint_drift_p99": 0.0000754
+      "cuda_trace_ms": 7.1966,
+      "cuda_constraint_drift_p99": 0.000001061
     },
     {
       "scene": "schwarzschild-i17-nodisk",
@@ -979,12 +1321,12 @@
         "edge_pixels": 1440
       },
       "image_difference": {
-        "meanAbsLevels": 0.00022055041152263375,
+        "meanAbsLevels": 0.0002559156378600823,
         "pctOver8": 0.00019290123456790122,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 20.5988,
-      "cuda_constraint_drift_p99": 9.656e-7
+      "cuda_trace_ms": 14.1198,
+      "cuda_constraint_drift_p99": 0.000001147
     },
     {
       "scene": "schwarzschild-i45-disk",
@@ -1036,12 +1378,12 @@
         "edge_pixels": 1440
       },
       "image_difference": {
-        "meanAbsLevels": 0.0002109053497942387,
-        "pctOver8": 0.00019290123456790122,
+        "meanAbsLevels": 0.0038657407407407408,
+        "pctOver8": 0.00038580246913580245,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 11.4524,
-      "cuda_constraint_drift_p99": 0.0001371
+      "cuda_trace_ms": 7.6667,
+      "cuda_constraint_drift_p99": 9.632e-7
     },
     {
       "scene": "schwarzschild-i45-nodisk",
@@ -1093,12 +1435,12 @@
         "edge_pixels": 1440
       },
       "image_difference": {
-        "meanAbsLevels": 0.00032214506172839505,
-        "pctOver8": 0.00038580246913580245,
+        "meanAbsLevels": 0.0003517232510288066,
+        "pctOver8": 0.0005787037037037037,
         "pctOver32": 0
       },
-      "cuda_trace_ms": 20.1349,
-      "cuda_constraint_drift_p99": 8.235e-7
+      "cuda_trace_ms": 14.1116,
+      "cuda_constraint_drift_p99": 0.000001049
     },
     {
       "scene": "schwarzschild-i85-disk",
@@ -1150,12 +1492,12 @@
         "edge_pixels": 1268
       },
       "image_difference": {
-        "meanAbsLevels": 0.000510545267489712,
-        "pctOver8": 0.0007716049382716049,
+        "meanAbsLevels": 0.0018184156378600823,
+        "pctOver8": 0.0005787037037037037,
         "pctOver32": 0.00038580246913580245
       },
-      "cuda_trace_ms": 14.2438,
-      "cuda_constraint_drift_p99": 0.0001283
+      "cuda_trace_ms": 11.0592,
+      "cuda_constraint_drift_p99": 0.000001053
     },
     {
       "scene": "schwarzschild-i85-nodisk",
@@ -1207,12 +1549,12 @@
         "edge_pixels": 1440
       },
       "image_difference": {
-        "meanAbsLevels": 0.0006539351851851851,
-        "pctOver8": 0.0011574074074074073,
+        "meanAbsLevels": 0.000729809670781893,
+        "pctOver8": 0.0013503086419753086,
         "pctOver32": 0.00038580246913580245
       },
-      "cuda_trace_ms": 21.1302,
-      "cuda_constraint_drift_p99": 0.000001012
+      "cuda_trace_ms": 14.1486,
+      "cuda_constraint_drift_p99": 0.000001184
     }
   ]
 }
