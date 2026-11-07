@@ -115,7 +115,16 @@ struct TraceOptions {
   int integrator;      // Integrator; RK4 when zero-initialised
   Real rtol;           // RK45 relative tolerance
   Real length_scale;   // RK45 absolute tolerance on x is rtol * length_scale
+  int crossing;        // RK4 disk crossing: CROSSING_LINEAR (zero-initialised) or CROSSING_HERMITE
 };
+
+/**
+ * How RK4 locates the disk crossing inside a step. Linear interpolation (the
+ * interactive renderers) jumps by O(h^2) when the crossing moves to another
+ * step; the cubic Hermite interpolant through both ends and their derivatives
+ * jumps by O(h^4), which Phase 4 needs for image gradients (step 5).
+ */
+enum Crossing : int { CROSSING_LINEAR = 0, CROSSING_HERMITE = 1 };
 
 template <typename Real>
 struct TraceResult {
@@ -125,7 +134,20 @@ struct TraceResult {
   Real max_drift;  // max |H| / p_t^2 over the accepted states (H = 0 for light)
   Real y[8];  // final state; the crossing point for FATE_DISK
   Real u[4];  // gas 4-velocity at the crossing (FATE_DISK only)
+  int crossings;  // crossings of the disk plane passed through (outside [inner, outer]) before the end
 };
+
+/**
+ * Cubic Hermite interpolant on t in [0, 1] of a step from y0 to y1 of length h
+ * with derivatives f0, f1, and its t-derivative.
+ */
+template <typename Real>
+RM_HD inline void hermite(Real t, Real y0, Real hf0, Real y1, Real hf1, Real& v, Real& dv) {
+  const Real t2 = t * t, t3 = t2 * t;
+  v = (Real(2) * t3 - Real(3) * t2 + Real(1)) * y0 + (t3 - Real(2) * t2 + t) * hf0 + (Real(3) * t2 - Real(2) * t3) * y1 + (t3 - t2) * hf1;
+  dv = (Real(6) * t2 - Real(6) * t) * y0 + (Real(3) * t2 - Real(4) * t + Real(1)) * hf0 + (Real(6) * t - Real(6) * t2) * y1 +
+       (Real(3) * t2 - Real(2) * t) * hf1;
+}
 
 /**
  * 4-velocity of gas on a circular orbit with angular velocity omega at x:
@@ -159,6 +181,7 @@ RM_HD inline TraceResult<Real> trace_ray_rk4(const Real* params, const Real y0[8
   res.steps = opt.max_steps;
   res.rejected = 0;
   res.max_drift = Real(0);
+  res.crossings = 0;
   const Real inv_pt2 = Real(1) / (y0[4] * y0[4]);
   Real k1[8], k2[8], k3[8], k4[8], tmp[8];
 
@@ -195,9 +218,28 @@ RM_HD inline TraceResult<Real> trace_ray_rk4(const Real* params, const Real y0[8
     for (int i = 0; i < 8; i++) tmp[i] = y[i] + (h / Real(6)) * (k1[i] + Real(2) * k2[i] + Real(2) * k3[i] + k4[i]);
 
     if (M::HAS_DISK && opt.disk && y[3] * tmp[3] <= Real(0) && y[3] != tmp[3]) {
-      const Real f = y[3] / (y[3] - tmp[3]);
       Real hit[8];
-      for (int i = 0; i < 8; i++) hit[i] = y[i] + f * (tmp[i] - y[i]);
+      if (opt.crossing == CROSSING_HERMITE) {
+        // Root of the Hermite z(t) by bisection, then one Newton step (which also carries
+        // the root's derivative on Dual numbers, as in trace_ray_rk45).
+        Real k5[8];
+        geodesic_rhs<M>(params, tmp, k5);
+        Real lo = Real(0), hi = Real(1), z, dz;
+        const bool lo_positive = y[3] > Real(0);
+        for (int it = 0; it < 60; it++) {
+          const Real th = Real(0.5) * (lo + hi);
+          hermite(th, y[3], h * k1[3], tmp[3], h * k5[3], z, dz);
+          if ((z > Real(0)) == lo_positive) lo = th;
+          else hi = th;
+        }
+        Real th = Real(0.5) * (lo + hi);
+        hermite(th, y[3], h * k1[3], tmp[3], h * k5[3], z, dz);
+        if (dz != Real(0)) th = th - z / dz;
+        for (int i = 0; i < 8; i++) hermite(th, y[i], h * k1[i], tmp[i], h * k5[i], hit[i], dz);
+      } else {
+        const Real f = y[3] / (y[3] - tmp[3]);
+        for (int i = 0; i < 8; i++) hit[i] = y[i] + f * (tmp[i] - y[i]);
+      }
       const Real rd = M::disk_radius(hit, params);
       if (rd >= M::disk_inner(hit, params) && rd <= M::disk_outer(hit, params) &&
           disk_gas_velocity<M>(params, hit, res.u)) {
@@ -206,6 +248,7 @@ RM_HD inline TraceResult<Real> trace_ray_rk4(const Real* params, const Real y0[8
         res.steps = step + 1;
         return res;
       }
+      res.crossings++;
     }
     for (int i = 0; i < 8; i++) y[i] = tmp[i];
   }
@@ -247,6 +290,7 @@ RM_HD inline TraceResult<Real> trace_ray_rk45(const Real* params, const Real y0[
   res.steps = 0;
   res.rejected = 0;
   res.max_drift = Real(0);
+  res.crossings = 0;
   const Real pt = fabs(y0[4]);
   const Real inv_pt2 = Real(1) / (pt * pt);
   Real k1[8], k2[8], k3[8], k4[8], k5[8], k6[8], k7[8], tmp[8], ynew[8];
@@ -324,7 +368,18 @@ RM_HD inline TraceResult<Real> trace_ray_rk45(const Real* params, const Real y0[
         if ((z > Real(0)) == lo_positive) lo = th;
         else hi = th;
       }
-      const Real th = Real(0.5) * (lo + hi);
+      Real th = Real(0.5) * (lo + hi);
+      // One Newton step on z(theta) = 0 after the bisection. In double it only
+      // polishes a converged root; on Dual numbers (tangent.h) it is what carries
+      // the crossing's derivative, dtheta = -dz / z', since bisection on its own
+      // builds theta from constants and so has zero derivative.
+      {
+        const Real a = r4[3] + (Real(1) - th) * r5[3], da = -r5[3];
+        const Real b = r3[3] + th * a, db = a + th * da;
+        const Real c = r2[3] + (Real(1) - th) * b, dc = -b + (Real(1) - th) * db;
+        const Real z = y[3] + th * c, dz = c + th * dc;
+        if (dz != Real(0)) th = th - z / dz;
+      }
       Real hit[8];
       for (int i = 0; i < 8; i++) hit[i] = y[i] + th * (r2[i] + (Real(1) - th) * (r3[i] + th * (r4[i] + (Real(1) - th) * r5[i])));
       const Real rd = M::disk_radius(hit, params);
@@ -335,6 +390,7 @@ RM_HD inline TraceResult<Real> trace_ray_rk45(const Real* params, const Real y0[
         res.steps++;
         return res;
       }
+      res.crossings++;
     }
 
     for (int i = 0; i < 8; i++) {
@@ -390,53 +446,78 @@ struct CameraFrame {
   int ok;  // 0 when no static observer exists at the camera (inside an ergoregion)
 };
 
+/** The same with every quantity in Real (used with Dual for camera tangents, tangent.h). */
+template <typename Real>
+struct CameraFrameT {
+  Real pos[4];
+  Real frame[4][4];
+  Real length_scale;
+  int ok;
+};
+
 /**
  * Static observer on an orbit of radius cam_radius * length_scale around the
  * origin, looking at it, with +z up: orbitCamera (web/src/camera.ts) followed
  * by Spacetime.staticFrame and lowering with g (compiler/src/geodesic.ts).
+ * Templated on Real so that, with Dual numbers, the frame's derivatives with
+ * respect to the parameters, the radius, the yaw and the pitch come along.
  */
-template <class M>
-RM_HD inline CameraFrame static_camera(const double* params, double cam_radius, double yaw, double pitch) {
-  CameraFrame cam;
-  const double origin[4] = {0, 0, 0, 0};
+template <class M, typename Real>
+RM_HD inline CameraFrameT<Real> static_camera_t(const Real* params, Real cam_radius, Real yaw, Real pitch) {
+  CameraFrameT<Real> cam;
+  const Real origin[4] = {Real(0), Real(0), Real(0), Real(0)};
   cam.length_scale = M::length_scale(origin, params);
-  const double radius = cam_radius * cam.length_scale;
-  const double pos3[3] = {radius * cos(pitch) * sin(yaw), radius * cos(pitch) * cos(yaw), radius * sin(pitch)};
-  double dir[3] = {-pos3[0], -pos3[1], -pos3[2]};
-  const double dl = sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+  const Real radius = cam_radius * cam.length_scale;
+  const Real pos3[3] = {radius * cos(pitch) * sin(yaw), radius * cos(pitch) * cos(yaw), radius * sin(pitch)};
+  Real dir[3] = {-pos3[0], -pos3[1], -pos3[2]};
+  const Real dl = sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
   for (int i = 0; i < 3; i++) dir[i] /= dl;
-  const double up[3] = {0, 0, 1};
-  cam.pos[0] = 0;
+  const Real up[3] = {Real(0), Real(0), Real(1)};
+  cam.pos[0] = Real(0);
   for (int i = 0; i < 3; i++) cam.pos[i + 1] = pos3[i];
 
-  double g[16], dg[64];
+  Real g[16], dg[64];
   M::eval(cam.pos, params, g, dg);
-  cam.ok = g[0] < 0;
+  cam.ok = g[0] < Real(0);
   if (!cam.ok) return cam;
 
-  const double e0[4] = {1 / sqrt(-g[0]), 0, 0, 0};
-  const double right[3] = {dir[1] * up[2] - dir[2] * up[1], dir[2] * up[0] - dir[0] * up[2], dir[0] * up[1] - dir[1] * up[0]};
+  const Real e0[4] = {Real(1) / sqrt(-g[0]), Real(0), Real(0), Real(0)};
+  const Real right[3] = {dir[1] * up[2] - dir[2] * up[1], dir[2] * up[0] - dir[0] * up[2], dir[0] * up[1] - dir[1] * up[0]};
   // Gram-Schmidt in the order forward, up, right (as staticFrame does).
-  const double* coords[3] = {dir, up, right};
-  double spatial[3][4];
+  const Real* coords[3] = {dir, up, right};
+  Real spatial[3][4];
   for (int n = 0; n < 3; n++) {
-    double w[4] = {0, coords[n][0], coords[n][1], coords[n][2]};
-    const double along0 = dot4(g, w, e0);
+    Real w[4] = {Real(0), coords[n][0], coords[n][1], coords[n][2]};
+    const Real along0 = dot4(g, w, e0);
     for (int i = 0; i < 4; i++) w[i] += along0 * e0[i];  // e0 . e0 = -1
     for (int m = 0; m < n; m++) {
-      const double along = dot4(g, w, spatial[m]);
+      const Real along = dot4(g, w, spatial[m]);
       for (int i = 0; i < 4; i++) w[i] -= along * spatial[m][i];
     }
-    const double norm = sqrt(dot4(g, w, w));
+    const Real norm = sqrt(dot4(g, w, w));
     for (int i = 0; i < 4; i++) spatial[n][i] = w[i] / norm;
   }
-  const double* frame[4] = {e0, spatial[2], spatial[1], spatial[0]};  // e0, right, up, forward
+  const Real* frame[4] = {e0, spatial[2], spatial[1], spatial[0]};  // e0, right, up, forward
   for (int a = 0; a < 4; a++)
     for (int mu = 0; mu < 4; mu++) {
-      double s = 0;
+      Real s = Real(0);
       for (int nu = 0; nu < 4; nu++) s += g[4 * mu + nu] * frame[a][nu];
       cam.frame[a][mu] = s;
     }
+  return cam;
+}
+
+/** static_camera_t in double, in the plain struct the kernels take by value. */
+template <class M>
+RM_HD inline CameraFrame static_camera(const double* params, double cam_radius, double yaw, double pitch) {
+  const CameraFrameT<double> t = static_camera_t<M, double>(params, cam_radius, yaw, pitch);
+  CameraFrame cam;
+  for (int mu = 0; mu < 4; mu++) {
+    cam.pos[mu] = t.pos[mu];
+    for (int a = 0; a < 4; a++) cam.frame[a][mu] = t.frame[a][mu];
+  }
+  cam.length_scale = t.length_scale;
+  cam.ok = t.ok;
   return cam;
 }
 
@@ -454,6 +535,19 @@ RM_HD inline void camera_ray(const CameraFrame& cam, Real dx, Real dy, Real dz, 
     y[mu] = Real(cam.pos[mu]);
     y[4 + mu] = -Real(cam.frame[0][mu]) + dx * Real(cam.frame[1][mu]) + dy * Real(cam.frame[2][mu]) +
                 dz * Real(cam.frame[3][mu]);
+  }
+}
+
+/** camera_ray for a CameraFrameT (same arithmetic). */
+template <typename Real>
+RM_HD inline void camera_ray_t(const CameraFrameT<Real>& cam, Real dx, Real dy, Real dz, Real y[8]) {
+  const Real len = sqrt(dx * dx + dy * dy + dz * dz);
+  dx /= len;
+  dy /= len;
+  dz /= len;
+  for (int mu = 0; mu < 4; mu++) {
+    y[mu] = cam.pos[mu];
+    y[4 + mu] = -cam.frame[0][mu] + dx * cam.frame[1][mu] + dy * cam.frame[2][mu] + dz * cam.frame[3][mu];
   }
 }
 

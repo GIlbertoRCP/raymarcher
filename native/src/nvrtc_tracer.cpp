@@ -118,6 +118,7 @@ bool NvrtcTracer::select(const CatalogEntry& metric, Precision precision, Module
     for (std::string f; in >> f;) extra.push_back(f);
   }
   std::string key = metric.id + (fp64 ? ":f64" : ":f32") + (options.rk45 ? ":rk45" : ":rk4") + (options.batch ? ":batch" : "") +
+                    (options.tangents > 0 ? ":tan" + std::to_string(options.tangents) : "") +
                     (std::getenv("RM_NVRTC_PRECISE") ? ":precise" : "");
   for (const std::string& f : extra) key += " " + f;
   last_compile_ms_ = 0;
@@ -133,17 +134,21 @@ bool NvrtcTracer::select(const CatalogEntry& metric, Precision precision, Module
     tracer_source_ = read_text(fs::path(paths_.kernels) / "tracer.cu");
     geodesic_source_ = read_text(fs::path(paths_.include) / "rm" / "geodesic.h");
     frame_source_ = read_text(fs::path(paths_.include) / "rm" / "frame.h");
+    dual_source_ = read_text(fs::path(paths_.include) / "rm" / "dual.h");
+    tangent_source_ = read_text(fs::path(paths_.include) / "rm" / "tangent.h");
+    emission_source_ = read_text(fs::path(paths_.include) / "rm" / "emission.h");
     metric_source = read_text(fs::path(paths_.generated) / metric.header);
   } catch (const std::exception& e) {
     error_ = e.what();
     return false;
   }
-  const char* headers[] = {metric_source.c_str(), geodesic_source_.c_str(), frame_source_.c_str()};
-  const char* header_names[] = {"metric.cuh", "rm/geodesic.h", "rm/frame.h"};
+  const char* headers[] = {metric_source.c_str(), geodesic_source_.c_str(), frame_source_.c_str(), dual_source_.c_str(),
+                           tangent_source_.c_str(), emission_source_.c_str()};
+  const char* header_names[] = {"metric.cuh", "rm/geodesic.h", "rm/frame.h", "rm/dual.h", "rm/tangent.h", "rm/emission.h"};
 
   auto t0 = std::chrono::steady_clock::now();
   nvrtcProgram prog;
-  if (nvrtcCreateProgram(&prog, tracer_source_.c_str(), "tracer.cu", 3, headers, header_names) != NVRTC_SUCCESS) {
+  if (nvrtcCreateProgram(&prog, tracer_source_.c_str(), "tracer.cu", 6, headers, header_names) != NVRTC_SUCCESS) {
     error_ = "nvrtcCreateProgram failed";
     return false;
   }
@@ -160,7 +165,11 @@ bool NvrtcTracer::select(const CatalogEntry& metric, Precision precision, Module
   // registers to 128 with 40 bytes of spills and runs ~14% faster; fp64 kernels
   // are bound by double-precision throughput and only spill, so they keep the default.
   const bool cap_given = std::any_of(extra.begin(), extra.end(), [](const std::string& f) { return f.find("maxrregcount") != std::string::npos; });
-  if (!fp64 && !cap_given) opts.push_back("--maxrregcount=128");
+  // Tangent modules keep the default: on the same Kerr batch the cap made fp32 dual tangents 2-4x slower
+  // (docs/benchmarks/phase4-step3-tangents-3070.json).
+  if (!fp64 && !cap_given && options.tangents == 0) opts.push_back("--maxrregcount=128");
+  const std::string tangent_opt = "-DRM_TANGENT_P=" + std::to_string(options.tangents);
+  if (options.tangents > 0) opts.push_back(tangent_opt.c_str());
   // Fast math (approximate sqrt, division and transcendentals) for the fp32
   // interactive modules only: on the 21-scene cross-backend set it changed no ray
   // fate and no image difference against WebGPU, and Kerr runs ~29% faster

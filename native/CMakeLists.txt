@@ -78,6 +78,12 @@ add_custom_command(TARGET raymarcher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/src/rm $<TARGET_FILE_DIR:raymarcher>/native/src/rm
 )
 
+# Phase 4 measurement: NVRTC compile time, registers and throughput of the
+# generated metric JVPs (docs/benchmarks/phase4-step1-jvp-3070.json).
+add_executable(raymarcher_jvp_cost tools/jvp_cost.cpp)
+target_link_libraries(raymarcher_jvp_cost PRIVATE CUDA::cuda_driver CUDA::nvrtc CUDA::nvml)
+target_compile_definitions(raymarcher_jvp_cost PRIVATE RM_NATIVE_DIR="${CMAKE_CURRENT_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
+
 if(MSVC)
     target_compile_options(raymarcher PRIVATE /W4)
     target_compile_definitions(raymarcher PRIVATE _CRT_SECURE_NO_WARNINGS)

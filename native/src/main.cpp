@@ -7,6 +7,9 @@
 //   raymarcher --render <scene.json> --out <prefix>
 //                                      render a scene file: image, fate, steps and drift maps
 //   raymarcher --validate [--out d]    fp64 validation suite on the GPU, results to validation/results/
+//   raymarcher --bench-tangents [--out f]  plain vs symbolic vs dual tangent kernels (Phase 4)
+//   raymarcher --image-gradients [--out f] flux-gradient measurement for the forward model (Phase 4)
+//   raymarcher --gate1 [--out f]           Phase 4 gate 1: image-loss gradient vs supersampled FD
 //   raymarcher --snapshot <id> <png>   render one frame headless (--size W H, --fp64,
 //                                      --sky stars|grid|none, --no-disk, --radius/--yaw/--pitch)
 //   raymarcher --capture <s> <png>     viewer: save the window (render + panel) after s seconds and exit
@@ -932,7 +935,7 @@ int run_viewer(NvrtcTracer& tracer, const std::vector<CatalogEntry>& catalog, Se
 
 int main(int argc, char** argv) {
   Settings s;
-  bool benchmark = false, validate = false;
+  bool benchmark = false, validate = false, bench_tangents = false, image_gradients = false, gate1 = false, gate1_diag = false;
   std::string bench_out = "benchmark_report.json";
   std::string render_scene;
   bool out_given = false;
@@ -945,6 +948,10 @@ int main(int argc, char** argv) {
     auto next = [&](int n = 1) { return i + n < argc; };
     if (a == "--benchmark" || a == "-b") benchmark = true;
     else if (a == "--validate") validate = true;
+    else if (a == "--bench-tangents") bench_tangents = true;
+    else if (a == "--image-gradients") image_gradients = true;
+    else if (a == "--gate1") gate1 = true;
+    else if (a == "--gate1-diag") gate1_diag = true;
     else if (a == "--out" && next()) {
       bench_out = argv[++i];
       out_given = true;
@@ -1007,11 +1014,17 @@ int main(int argc, char** argv) {
     std::printf("Sources: %s\n", paths.kernels.c_str());
 
     if (benchmark) return run_benchmark(tracer, catalog, s, bench_out);
-    if (validate) {
+    if (gate1_diag) return run_gate1_diag(tracer, catalog);
+    if (validate || bench_tangents || image_gradients || gate1) {
       const SystemInfo info = system_info(tracer);
       const SystemStrings strings{info.gpu, info.arch, info.driver, cuda_version(info.cuda_driver),
                                   std::to_string(info.nvrtc_major) + "." + std::to_string(info.nvrtc_minor)};
-      return run_validation(tracer, catalog, strings, out_given ? bench_out : "validation/results");
+      if (gate1) return run_gate1(tracer, catalog, strings, out_given ? bench_out : "validation/results/image-gradient-gate.json");
+      if (image_gradients)
+        return run_image_gradients(tracer, catalog, strings, out_given ? bench_out : "validation/results/image-gradients.json");
+      if (bench_tangents)
+        return run_tangent_benchmark(tracer, catalog, strings, out_given ? bench_out : "docs/benchmarks/phase4-step3-tangents-3070.json");
+      return run_validation(tracer, catalog, strings, out_given ? bench_out : "validation/results", paths.generated);
     }
     if (!render_scene.empty()) {
       const std::string prefix = out_given ? bench_out : std::filesystem::path(render_scene).stem().string();

@@ -7,6 +7,7 @@
 //   RM_METRIC  namespace of the generated metric; "metric.cuh" is that header
 //   RM_RK45    1: trace_kernel integrates with adaptive RK45 instead of fixed-step RK4
 //   RM_BATCH   1: also compile the validation batch kernels
+//   RM_TANGENT_P  > 0 (with RM_BATCH): also the tangent batch kernel, P directions (rm/tangent.h)
 
 #include "metric.cuh"
 #include "rm/frame.h"
@@ -184,6 +185,7 @@ extern "C" __global__ void trace_kernel(rm::FrameUniforms U, float* hdr, unsigne
   opt.disk = (U.flags & rm::FLAG_DISK) != 0;
   opt.rtol = Real(U.rtol);
   opt.length_scale = Real(U.cam.length_scale);
+  opt.crossing = rm::CROSSING_LINEAR;  // as the WGSL tracer
 #if RM_RK45
   opt.integrator = rm::INTEGRATOR_RK45;
   const rm::TraceResult<Real> res = rm::trace_ray_rk45<Metric, Real>(params, y0, opt);
@@ -227,6 +229,7 @@ __device__ rm::TraceOptions<Real> batch_options(const rm::BatchOptions& o) {
   opt.integrator = o.integrator;
   opt.rtol = Real(o.rtol);
   opt.length_scale = Real(o.length_scale);
+  opt.crossing = o.crossing;
   return opt;
 }
 
@@ -279,6 +282,224 @@ extern "C" __global__ void metric_eval_kernel(const double* params, const double
   for (int k = 0; k < 64; k++) dg[64 * i + k] = double(dgi[k]);
 }
 #endif  // RM_BATCH
+
+// --- Tangent batch (Phase 4): modules built with RM_BATCH=1 and RM_TANGENT_P > 0 --------------
+#if RM_BATCH && defined(RM_TANGENT_P) && RM_TANGENT_P > 0
+#include "rm/tangent.h"
+
+// Camera rays from theta[i] (rm::MAX_THETA values: metric parameters, camera
+// radius, inclination, yaw, u, v) with tangents along dirs[d] (P x MAX_THETA,
+// shared by every ray). MODE 0 (trace_tangent_rays_kernel): symbolic tangents
+// (compiler JVP, RK4); MODE 1 (trace_dual_rays_kernel): Dual numbers through
+// rm::trace_ray (RK4 or RK45, from o.integrator). Separate kernels, so each gets
+// its own register allocation.
+// out[(16 + 16 P) i ..] = y0, S0 (8 P), y, S (8 P), S[8 d + j] = dy_j along d;
+// meta[2 i] = fate (-1 when there is no static observer), meta[2 i + 1] = steps.
+template <int MODE>
+__device__ void tangent_ray_record(rm::BatchOptions o, const double* thetas, const double* dirs, int n, double* out, int* meta) {
+  constexpr int P = RM_TANGENT_P;
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  const double(*dd)[rm::MAX_THETA] = reinterpret_cast<const double(*)[rm::MAX_THETA]>(dirs);
+  const double* theta = thetas + rm::MAX_THETA * i;
+  const rm::TraceOptions<Real> opt = batch_options(o);
+  double* rec = out + size_t(16 + 16 * P) * i;
+  bool ok = false;
+  Real y0[8], S0[8 * P];
+  if (MODE == 0) {
+    rm::TangentResult<Real, P> r;
+    rm::tangent_ray_symbolic<Metric, Real, P>(theta, dd, opt, y0, S0, r, ok);
+    if (ok) {
+      for (int k = 0; k < 8; k++) rec[8 + 8 * P + k] = double(r.y[k]);
+      for (int k = 0; k < 8 * P; k++) rec[16 + 8 * P + k] = double(r.S[k]);
+      meta[2 * i] = r.fate;
+      meta[2 * i + 1] = r.steps;
+    }
+  } else {
+    constexpr int NP = Metric::PARAM_COUNT > 0 ? Metric::PARAM_COUNT : 1;
+    rm::Dual<Real, P> dp[NP], dy0[8];
+    ok = rm::dual_camera_ray<Metric, Real, P>(theta, dd, dp, dy0);
+    if (ok) {
+      rm::split_duals<Real, P>(dy0, 8, y0, S0);
+      const rm::TraceResult<rm::Dual<Real, P>> r = rm::trace_ray<Metric>(dp, dy0, rm::dual_options<Real, P>(opt));
+      for (int k = 0; k < 8; k++) {
+        rec[8 + 8 * P + k] = double(r.y[k].v);
+        for (int d = 0; d < P; d++) rec[16 + 8 * P + 8 * d + k] = double(r.y[k].d[d]);
+      }
+      meta[2 * i] = r.fate;
+      meta[2 * i + 1] = r.steps;
+    }
+  }
+  if (!ok) {
+    meta[2 * i] = -1;
+    meta[2 * i + 1] = 0;
+    return;
+  }
+  for (int k = 0; k < 8; k++) rec[k] = double(y0[k]);
+  for (int k = 0; k < 8 * P; k++) rec[8 + k] = double(S0[k]);
+}
+
+extern "C" __global__ void trace_tangent_rays_kernel(rm::BatchOptions o, const double* thetas, const double* dirs, int n,
+                                                     double* out, int* meta) {
+  tangent_ray_record<0>(o, thetas, dirs, n, out, meta);
+}
+extern "C" __global__ void trace_dual_rays_kernel(rm::BatchOptions o, const double* thetas, const double* dirs, int n,
+                                                  double* out, int* meta) {
+  tangent_ray_record<1>(o, thetas, dirs, n, out, meta);
+}
+
+#include "rm/emission.h"
+
+// Model-sky samples (Phase 4, step 4; compiler/src/image-model.ts): sample s is the
+// camera ray with (u, v) = xi[2 s .. 2 s + 1] / R for the camera in theta_base
+// (rm::MAX_THETA values; R = theta_base[NP + THETA_RADIUS]). Writes the disk
+// intensity I[s] (0 unless the ray crosses the disk; rm::thin_disk_intensity),
+// meta[3 s ..] = (fate, steps, crossings), and for the dual kernel the
+// derivatives dI[P s + d] along dirs[d] (P x MAX_THETA).
+extern "C" __global__ void render_samples_dual_kernel(rm::BatchOptions o, const double* theta_base, const double* dirs,
+                                                      const double* xi, int n, double taper, double* I, double* dI,
+                                                      int* meta) {
+  constexpr int P = RM_TANGENT_P;
+  constexpr int NP = Metric::PARAM_COUNT;
+  const int s = blockIdx.x * blockDim.x + threadIdx.x;
+  if (s >= n) return;
+  double theta[rm::MAX_THETA];
+  for (int k = 0; k < rm::MAX_THETA; k++) theta[k] = theta_base[k];
+  const double R = theta[NP + rm::THETA_RADIUS];
+  theta[NP + rm::THETA_U] = xi[2 * s] / R;
+  theta[NP + rm::THETA_V] = xi[2 * s + 1] / R;
+  const double(*dd)[rm::MAX_THETA] = reinterpret_cast<const double(*)[rm::MAX_THETA]>(dirs);
+  typedef rm::Dual<Real, P> D;
+  D dp[NP > 0 ? NP : 1], dy0[8];
+  const bool ok = rm::dual_camera_ray<Metric, Real, P>(theta, dd, dp, dy0);
+  D val = D(Real(0));
+  int fate = -1, steps = 0, crossings = 0;
+  if (ok) {
+    const rm::TraceResult<D> r = rm::trace_ray<Metric>(dp, dy0, rm::dual_options<Real, P>(batch_options(o)));
+    fate = r.fate;
+    steps = r.steps;
+    crossings = r.crossings;
+    if (r.fate == rm::FATE_DISK) val = rm::thin_disk_intensity<Metric, D>(dp, r.y, D(Real(taper)));
+  }
+  I[s] = double(val.v);
+  for (int d = 0; d < P; d++) dI[P * s + d] = double(val.d[d]);
+  meta[3 * s] = fate;
+  meta[3 * s + 1] = steps;
+  meta[3 * s + 2] = crossings;
+}
+
+/** The camera of theta_base, in double (as camera_kernel). */
+__device__ rm::CameraFrame sample_camera(const double* theta_base, Real params[rm::MAX_PARAMS]) {
+  constexpr int NP = Metric::PARAM_COUNT;
+  double pd[rm::MAX_PARAMS] = {};
+  for (int k = 0; k < NP; k++) pd[k] = theta_base[k];
+  for (int k = 0; k < rm::MAX_PARAMS; k++) params[k] = Real(pd[k]);
+  return rm::static_camera<Metric>(pd, theta_base[NP + rm::THETA_RADIUS], theta_base[NP + rm::THETA_YAW],
+                                   rm::TANGENT_PI / 2 - theta_base[NP + rm::THETA_INCLINATION]);
+}
+
+/**
+ * Intensity of the sample at model-sky (x, y). branch is 0 for rays that carry
+ * no light (escaped, captured, unfinished) and 1 + crossings for disk hits:
+ * inside one branch the intensity is a smooth function of position and
+ * parameters, so branch changes are where the edge term lives.
+ */
+__device__ Real plain_sample(const rm::BatchOptions& o, const rm::CameraFrame& cam, const Real* params, double R, double x,
+                             double y, double taper, int& fate, int& steps, int& crossings) {
+  fate = -1;
+  steps = crossings = 0;
+  if (!cam.ok) return Real(0);
+  Real y0[8];
+  rm::camera_ray<Real>(cam, Real(x / R), Real(y / R), Real(1), y0);
+  const rm::TraceResult<Real> r = rm::trace_ray<Metric>(params, y0, batch_options(o));
+  fate = r.fate;
+  steps = r.steps;
+  crossings = r.crossings;
+  return r.fate == rm::FATE_DISK ? rm::thin_disk_intensity<Metric, Real>(params, r.y, Real(taper)) : Real(0);
+}
+
+__device__ inline int branch_of(int fate, int crossings) { return fate == rm::FATE_DISK ? 1 + crossings : 0; }
+
+extern "C" __global__ void render_samples_plain_kernel(rm::BatchOptions o, const double* theta_base, const double* xi, int n,
+                                                       double taper, double* I, int* meta) {
+  const int s = blockIdx.x * blockDim.x + threadIdx.x;
+  if (s >= n) return;
+  Real params[rm::MAX_PARAMS];
+  const rm::CameraFrame cam = sample_camera(theta_base, params);
+  const double R = theta_base[Metric::PARAM_COUNT + rm::THETA_RADIUS];
+  int fate, steps, crossings;
+  I[s] = double(plain_sample(o, cam, params, R, xi[2 * s], xi[2 * s + 1], taper, fate, steps, crossings));
+  meta[3 * s] = fate;
+  meta[3 * s + 1] = steps;
+  meta[3 * s + 2] = crossings;
+}
+
+// Edge location (Phase 4, step 5): for segment i from (seg[4 i], seg[4 i + 2]) to
+// (seg[4 i + 1], seg[4 i + 2]) on the model sky, whose ends lie on different
+// branches, bisects `iters` times on "same branch as the start" and writes
+// out[4 i ..] = (crossing x, intensity at the start side, at the end side, flag).
+// seg[4 i + 3] is the expected start branch; flag = 1 when the start or end branch
+// differs from what the caller saw (the boundary left the segment).
+extern "C" __global__ void edge_bisect_kernel(rm::BatchOptions o, const double* theta_base, const double* seg, int n, int iters,
+                                              double taper, double* out) {
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  Real params[rm::MAX_PARAMS];
+  const rm::CameraFrame cam = sample_camera(theta_base, params);
+  const double R = theta_base[Metric::PARAM_COUNT + rm::THETA_RADIUS];
+  double a = seg[4 * i], b = seg[4 * i + 1];
+  const double y = seg[4 * i + 2];
+  int fate, steps, crossings;
+  Real Ia = plain_sample(o, cam, params, R, a, y, taper, fate, steps, crossings);
+  const int ba = branch_of(fate, crossings);
+  Real Ib = plain_sample(o, cam, params, R, b, y, taper, fate, steps, crossings);
+  const int bb = branch_of(fate, crossings);
+  double flag = (ba != int(seg[4 * i + 3]) || bb == ba) ? 1 : 0;
+  for (int it = 0; it < iters && flag == 0; it++) {
+    const double m = 0.5 * (a + b);
+    const Real Im = plain_sample(o, cam, params, R, m, y, taper, fate, steps, crossings);
+    if (branch_of(fate, crossings) == ba) {
+      a = m;
+      Ia = Im;
+    } else {
+      b = m;
+      Ib = Im;
+    }
+  }
+  out[4 * i] = 0.5 * (a + b);
+  out[4 * i + 1] = double(Ia);
+  out[4 * i + 2] = double(Ib);
+  out[4 * i + 3] = flag;
+}
+
+// Critical curve (Phase 4, step 5): along ray i from the model-sky point (ray[4 i], ray[4 i + 1])
+// in direction (ray[4 i + 2], ray[4 i + 3]), bisects `iters` times between distances t0 and t1
+// on "captured" (call with the disk off) and writes out[2 i ..] = (distance, flag); flag = 1
+// unless t0 is captured and t1 is not.
+extern "C" __global__ void curve_bisect_kernel(rm::BatchOptions o, const double* theta_base, const double* ray, int n, double t0,
+                                               double t1, int iters, double* out) {
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  Real params[rm::MAX_PARAMS];
+  const rm::CameraFrame cam = sample_camera(theta_base, params);
+  const double R = theta_base[Metric::PARAM_COUNT + rm::THETA_RADIUS];
+  const double ox = ray[4 * i], oy = ray[4 * i + 1], ex = ray[4 * i + 2], ey = ray[4 * i + 3];
+  int fate, steps, crossings;
+  auto captured = [&](double t) {
+    plain_sample(o, cam, params, R, ox + t * ex, oy + t * ey, 0, fate, steps, crossings);
+    return fate == rm::FATE_CAPTURED;
+  };
+  double a = t0, b = t1;
+  const double flag = (captured(a) && !captured(b)) ? 0 : 1;
+  for (int it = 0; it < iters && flag == 0; it++) {
+    const double m = 0.5 * (a + b);
+    if (captured(m)) a = m;
+    else b = m;
+  }
+  out[2 * i] = 0.5 * (a + b);
+  out[2 * i + 1] = flag;
+}
+#endif
 
 // --- Composite: bloom, ACES tone mapping and display grading ---------------------
 

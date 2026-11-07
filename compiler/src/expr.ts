@@ -13,6 +13,9 @@ export type Node =
   | { k: 'num'; v: number }
   | { k: 'coord'; i: number }
   | { k: 'param'; i: number }
+  // A tangent input: the direction component dx^i (src 'coord') or dtheta_i
+  // (src 'param') of a Jacobian-vector product. See tangent.ts.
+  | { k: 'tan'; src: 'coord' | 'param'; i: number }
   | { k: 'add'; a: number[] }
   | { k: 'mul'; a: number[] }
   | { k: 'pow'; b: number; e: number } // base node, constant exponent
@@ -62,6 +65,10 @@ export class Graph {
 
   param(i: number): number {
     return this.intern({ k: 'param', i });
+  }
+
+  tan(src: 'coord' | 'param', i: number): number {
+    return this.intern({ k: 'tan', src, i });
   }
 
   add(...terms: number[]): number {
@@ -139,20 +146,34 @@ export class Graph {
     return this.intern({ k: 'fn', f, a });
   }
 
-  /** Evaluates a node in double precision (used by tests and the analyser). */
-  evaluate(id: number, coords: ArrayLike<number>, params: ArrayLike<number>, memo = new Map<number, number>()): number {
+  /**
+   * Evaluates a node in double precision (used by tests and the analyser).
+   * `tangent` supplies the values of tangent inputs, if the node has any.
+   */
+  evaluate(
+    id: number,
+    coords: ArrayLike<number>,
+    params: ArrayLike<number>,
+    memo = new Map<number, number>(),
+    tangent?: { coords: ArrayLike<number>; params: ArrayLike<number> },
+  ): number {
     const cached = memo.get(id);
     if (cached !== undefined) return cached;
     const n = this.nodes[id];
+    const ev = (t: number) => this.evaluate(t, coords, params, memo, tangent);
     let v: number;
     switch (n.k) {
       case 'num': v = n.v; break;
       case 'coord': v = coords[n.i]; break;
       case 'param': v = params[n.i]; break;
-      case 'add': v = n.a.reduce((s, t) => s + this.evaluate(t, coords, params, memo), 0); break;
-      case 'mul': v = n.a.reduce((s, t) => s * this.evaluate(t, coords, params, memo), 1); break;
-      case 'pow': v = this.evaluate(n.b, coords, params, memo) ** n.e; break;
-      case 'fn': v = FN_IMPL[n.f](this.evaluate(n.a, coords, params, memo)); break;
+      case 'tan':
+        if (!tangent) throw new Error('Evaluating a tangent node needs tangent values');
+        v = (n.src === 'coord' ? tangent.coords : tangent.params)[n.i];
+        break;
+      case 'add': v = n.a.reduce((s, t) => s + ev(t), 0); break;
+      case 'mul': v = n.a.reduce((s, t) => s * ev(t), 1); break;
+      case 'pow': v = ev(n.b) ** n.e; break;
+      case 'fn': v = FN_IMPL[n.f](ev(n.a)); break;
     }
     memo.set(id, v);
     return v;
