@@ -5,6 +5,7 @@
 //   geodesic_rhs<Real>(const Real y[8], const Real* params, Real dy[8]) -> H   (fused Hamilton's equations)
 //   horizon_value / disk_radius / disk_omega / disk_inner / disk_outer / length_scale
 //     <Real>(const Real x[4], const Real* params) -> Real
+//   metric_jvp / disk_jvp<Real, P>(...)   Jacobian-vector products along P directions (tangent.ts)
 //   constexpr NAME, PARAM_COUNT, HAS_HORIZON, HAS_DISK
 // Every function is RM_HD (__host__ __device__ under nvcc or NVRTC), so the same
 // header serves the NVRTC tracer (float or double) and plain host C++ (tests,
@@ -13,6 +14,7 @@
 
 import type { CompiledMetric } from './compile.ts';
 import { emitBlock, type Dialect } from './emit.ts';
+import { cudaJvpFunctions } from './tangent.ts';
 
 function doubleLiteral(v: number): string {
   if (!Number.isFinite(v)) throw new Error(`Cannot emit non-finite constant ${v}`);
@@ -37,6 +39,14 @@ const PRELUDE = `#ifndef RM_HD
 #define RM_HD __host__ __device__
 #else
 #define RM_HD
+#endif
+#endif
+
+#ifndef RM_UNROLL
+#if defined(__CUDACC__)
+#define RM_UNROLL _Pragma("unroll")
+#else
+#define RM_UNROLL
 #endif
 #endif
 
@@ -183,6 +193,7 @@ export function compileToCuda(metric: CompiledMetric, id: string): string {
     ...scalarFn(metric, 'disk_inner', metric.disk?.inner ?? null, '0.0'),
     ...scalarFn(metric, 'disk_outer', metric.disk?.outer ?? null, '0.0'),
     ...scalarFn(metric, 'length_scale', metric.scale, '1.0'),
+    ...cudaJvpFunctions(metric, cpp),
     '// The functions above as one type, so generic code can take the metric as a',
     '// template parameter (rm::trace_ray<rm::kerr::Metric>(...)).',
     'struct Metric {',
@@ -197,6 +208,14 @@ export function compileToCuda(metric: CompiledMetric, id: string): string {
       '  template <typename Real>',
       `  RM_HD static Real ${f}(const Real x[4], const Real* p) { return ${ns}::${f}(x, p); }`,
     ]),
+    '  template <typename Real, int P>',
+    '  RM_HD static void jvp(const Real x[4], const Real* p, const Real* dx, const Real* dp, Real g[16], Real dg[64], Real* tg, Real* tdg) {',
+    `    ${ns}::metric_jvp<Real, P>(x, p, dx, dp, g, dg, tg, tdg);`,
+    '  }',
+    '  template <typename Real, int P>',
+    '  RM_HD static void disk_jvp(const Real x[4], const Real* p, const Real* dx, const Real* dp, Real out[4], Real* tout) {',
+    `    ${ns}::disk_jvp<Real, P>(x, p, dx, dp, out, tout);`,
+    '  }',
     '};',
     '',
     `}  // namespace ${ns}`,

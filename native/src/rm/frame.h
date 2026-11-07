@@ -43,7 +43,7 @@ struct BatchOptions {
   int max_steps;
   int integrator;
   int disk;
-  int pad_;
+  int crossing;  // rm::Crossing for RK4 disk crossings (0: linear)
 };
 
 /** Result of one ray in a batch. */

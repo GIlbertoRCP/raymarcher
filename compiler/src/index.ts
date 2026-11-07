@@ -5,3 +5,7 @@ export { Spacetime, invert4, dot4, lower, type RayResult, type Vec3, type Vec4 }
 export { compileToWgsl, MAX_PARAMS } from './backend-wgsl.ts';
 export { compileToCuda, cudaIdentifier } from './backend-cuda.ts';
 export { exportCuda, type CatalogEntry } from './export-cuda.ts';
+export { compileJvpToJs, metricTangent, jvpStats, type JsMetricJvp, type MetricTangent } from './tangent.ts';
+export { differentiate, differentiateParam, directional } from './diff.ts';
+export { TangentSpacetime, CAMERA_INPUTS, type RayInputs, type TangentRay, type TangentTraceOptions } from './tangent-geodesic.ts';
+export { ImageModel, thinDisk, stratifiedSamples, observe, pixelCentres, type EmissionModel, type Samples, type SampleIntensities, type ObservedImageSpec, type ObservedImage } from './image-model.ts';

@@ -44,6 +44,7 @@ enum class Precision { Float, Double };
 struct ModuleOptions {
   bool rk45 = false;   // trace_kernel uses adaptive RK45 (RM_RK45)
   bool batch = false;  // include the validation batch kernels (RM_BATCH)
+  int tangents = 0;    // > 0: also the tangent batch kernel with this many directions (RM_TANGENT_P; needs batch)
 };
 
 /** Static resources of the selected trace kernel. */
@@ -85,7 +86,7 @@ class NvrtcTracer {
   };
   SourcePaths paths_;
   std::string arch_;
-  std::string tracer_source_, geodesic_source_, frame_source_;
+  std::string tracer_source_, geodesic_source_, frame_source_, dual_source_, tangent_source_, emission_source_;
   std::map<std::string, Module> modules_;
   Module* current_ = nullptr;
   std::string error_;

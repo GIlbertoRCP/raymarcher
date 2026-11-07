@@ -5,6 +5,8 @@ export interface Dialect {
   number(v: number): string;
   coord(i: number): string;
   param(i: number): string;
+  /** A tangent input (dx^i or dtheta_i) for the current direction; needed only by JVP code. */
+  tangent?(src: 'coord' | 'param', i: number): string;
   fn(f: FnName, arg: string): string;
   /** General power with a non-integer, non-half-integer exponent. */
   pow(base: string, e: string): string;
@@ -23,14 +25,10 @@ function product(name: string, n: number): string {
   return new Array(n).fill(name).join(' * ');
 }
 
-/**
- * Emits straight-line code computing `roots`. Each shared node becomes one
- * temporary, so common subexpressions are evaluated once.
- */
-export function emitBlock(graph: Graph, roots: readonly number[], dialect: Dialect, prefix = 't'): EmittedBlock {
-  const names = new Map<number, string>();
-  const lines: string[] = [];
+/** Generated names for emitted nodes; shared by blocks emitted in sequence. */
+export type Names = Map<number, string>;
 
+function emitter(graph: Graph, dialect: Dialect, names: Names) {
   const ref = (id: number): string => {
     const named = names.get(id);
     if (named) return named;
@@ -38,17 +36,23 @@ export function emitBlock(graph: Graph, roots: readonly number[], dialect: Diale
     if (n.k === 'num') return dialect.number(n.v);
     if (n.k === 'coord') return dialect.coord(n.i);
     if (n.k === 'param') return dialect.param(n.i);
+    if (n.k === 'tan') {
+      if (!dialect.tangent) throw new Error('This dialect has no tangent inputs');
+      return dialect.tangent(n.src, n.i);
+    }
     throw new Error(`Node ${id} used before it was emitted`);
   };
 
-  for (const id of graph.topologicalOrder(roots)) {
+  /** The statement defining node `id`, or null for nodes referenced inline. */
+  const statement = (id: number, prefix: string): string | null => {
     const n = graph.node(id);
     let value: string;
     switch (n.k) {
       case 'num':
       case 'coord':
       case 'param':
-        continue; // referenced inline
+      case 'tan':
+        return null;
       case 'add':
         value = n.a.map(ref).join(' + ');
         break;
@@ -77,8 +81,63 @@ export function emitBlock(graph: Graph, roots: readonly number[], dialect: Diale
       }
     }
     const name = `${prefix}${id}`;
-    lines.push(dialect.declare(name, value));
     names.set(id, name);
+    return dialect.declare(name, value);
+  };
+  return { ref, statement };
+}
+
+/**
+ * Emits straight-line code computing `roots`. Each shared node becomes one
+ * temporary, so common subexpressions are evaluated once.
+ */
+export function emitBlock(graph: Graph, roots: readonly number[], dialect: Dialect, prefix = 't'): EmittedBlock {
+  const names: Names = new Map();
+  const { ref, statement } = emitter(graph, dialect, names);
+  const lines: string[] = [];
+  for (const id of graph.topologicalOrder(roots)) {
+    const line = statement(id, prefix);
+    if (line !== null) lines.push(line);
   }
   return { lines, results: roots.map(ref) };
+}
+
+export interface SplitBlock {
+  /** Statements that do not depend on tangent inputs: computed once. */
+  primal: string[];
+  /** Statements that depend on tangent inputs: computed once per direction. */
+  tangent: string[];
+  primalResults: string[];
+  tangentResults: string[];
+}
+
+/**
+ * Emits a JVP in two parts. Nodes that do not depend on any tangent input
+ * (the plain evaluation and the partial derivatives the chain rule needs) go
+ * in `primal`; the rest go in `tangent`, which the caller wraps in a loop over
+ * directions. Tangent temporaries use the prefix `d`.
+ */
+export function emitSplit(
+  graph: Graph,
+  primalRoots: readonly number[],
+  tangentRoots: readonly number[],
+  dialect: Dialect,
+): SplitBlock {
+  const order = graph.topologicalOrder([...primalRoots, ...tangentRoots]);
+  const dependsOnTangent = new Set<number>();
+  for (const id of order) {
+    const n = graph.node(id);
+    const children = n.k === 'add' || n.k === 'mul' ? n.a : n.k === 'pow' ? [n.b] : n.k === 'fn' ? [n.a] : [];
+    if (n.k === 'tan' || children.some(c => dependsOnTangent.has(c))) dependsOnTangent.add(id);
+  }
+  const names: Names = new Map();
+  const { ref, statement } = emitter(graph, dialect, names);
+  const primal: string[] = [];
+  const tangent: string[] = [];
+  for (const id of order) {
+    const inner = dependsOnTangent.has(id);
+    const line = statement(id, inner ? 'd' : 't');
+    if (line !== null) (inner ? tangent : primal).push(line);
+  }
+  return { primal, tangent, primalResults: primalRoots.map(ref), tangentResults: tangentRoots.map(ref) };
 }
